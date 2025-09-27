@@ -1,0 +1,296 @@
+"""Audio capture module for continuous microphone recording."""
+
+import sounddevice as sd
+import numpy as np
+import wave
+import threading
+import time
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, Callable, List
+from queue import Queue, Empty
+from dataclasses import dataclass
+
+from .config import AudioConfig
+from .logger import LoggerMixin
+
+
+@dataclass
+class AudioSegment:
+    """Represents a recorded audio segment."""
+    file_path: Path
+    start_time: datetime
+    end_time: datetime
+    duration: float
+    sample_rate: int
+
+
+class AudioCapture(LoggerMixin):
+    """Handles continuous audio recording with rolling segments."""
+    
+    def __init__(self, config: AudioConfig, output_dir: Path):
+        self.config = config
+        self.output_dir = output_dir
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        self._recording = False
+        self._paused = False
+        self._stop_event = threading.Event()
+        self._record_thread: Optional[threading.Thread] = None
+        
+        # Audio buffer and processing
+        self._audio_buffer: List[np.ndarray] = []
+        self._buffer_lock = threading.Lock()
+        self._segment_queue: Queue[AudioSegment] = Queue()
+        
+        # Callbacks
+        self._on_segment_complete: Optional[Callable[[AudioSegment], None]] = None
+        
+        # Silence detection
+        self._silence_start: Optional[float] = None
+        self._last_audio_time: Optional[float] = None
+        
+        self.logger.info(f"AudioCapture initialized with output dir: {output_dir}")
+    
+    def set_segment_callback(self, callback: Callable[[AudioSegment], None]) -> None:
+        """Set callback function to be called when a segment is complete."""
+        self._on_segment_complete = callback
+    
+    def start_recording(self) -> None:
+        """Start continuous audio recording."""
+        if self._recording:
+            self.logger.warning("Recording already in progress")
+            return
+        
+        self._recording = True
+        self._paused = False
+        self._stop_event.clear()
+        
+        self._record_thread = threading.Thread(target=self._record_loop, daemon=True)
+        self._record_thread.start()
+        
+        self.logger.info("Audio recording started")
+    
+    def stop_recording(self) -> None:
+        """Stop audio recording and save any remaining buffer."""
+        if not self._recording:
+            return
+        
+        self._recording = False
+        self._stop_event.set()
+        
+        if self._record_thread and self._record_thread.is_alive():
+            self._record_thread.join(timeout=5.0)
+        
+        # Save any remaining audio in buffer
+        self._save_current_buffer()
+        
+        self.logger.info("Audio recording stopped")
+    
+    def pause_recording(self) -> None:
+        """Pause recording (keeps thread alive but stops capturing)."""
+        self._paused = True
+        self.logger.info("Audio recording paused")
+    
+    def resume_recording(self) -> None:
+        """Resume recording."""
+        self._paused = False
+        self.logger.info("Audio recording resumed")
+    
+    def is_recording(self) -> bool:
+        """Check if currently recording."""
+        return self._recording and not self._paused
+    
+    def get_completed_segments(self) -> List[AudioSegment]:
+        """Get all completed audio segments from the queue."""
+        segments = []
+        try:
+            while True:
+                segment = self._segment_queue.get_nowait()
+                segments.append(segment)
+        except Empty:
+            pass
+        return segments
+    
+    def _record_loop(self) -> None:
+        """Main recording loop running in separate thread."""
+        try:
+            # Configure audio stream
+            stream = sd.InputStream(
+                samplerate=self.config.sample_rate,
+                channels=self.config.channels,
+                dtype=np.float32,
+                device=self.config.device_id,
+                callback=self._audio_callback,
+                blocksize=1024
+            )
+            
+            with stream:
+                self.logger.info(f"Audio stream started - Sample rate: {self.config.sample_rate}, "
+                               f"Channels: {self.config.channels}")
+                
+                segment_start_time = time.time()
+                
+                while not self._stop_event.is_set():
+                    # Check if it's time to save a segment
+                    current_time = time.time()
+                    if current_time - segment_start_time >= self.config.chunk_duration:
+                        self._save_current_buffer()
+                        segment_start_time = current_time
+                    
+                    # Check for silence-based segmentation
+                    if self._should_segment_on_silence():
+                        self._save_current_buffer()
+                        segment_start_time = current_time
+                    
+                    time.sleep(0.1)  # Small sleep to prevent busy waiting
+                
+        except Exception as e:
+            self.logger.error(f"Error in recording loop: {e}")
+        finally:
+            self.logger.info("Recording loop ended")
+    
+    def _audio_callback(self, indata: np.ndarray, frames: int, time_info, status) -> None:
+        """Callback function for audio stream."""
+        if status:
+            self.logger.warning(f"Audio callback status: {status}")
+        
+        if self._paused:
+            return
+        
+        # Convert to mono if needed
+        if indata.shape[1] > 1:
+            audio_data = np.mean(indata, axis=1)
+        else:
+            audio_data = indata[:, 0]
+        
+        # Add to buffer
+        with self._buffer_lock:
+            self._audio_buffer.append(audio_data.copy())
+        
+        # Update silence detection
+        self._update_silence_detection(audio_data)
+    
+    def _update_silence_detection(self, audio_data: np.ndarray) -> None:
+        """Update silence detection state."""
+        current_time = time.time()
+        
+        # Calculate RMS (root mean square) for volume detection
+        rms = np.sqrt(np.mean(audio_data ** 2))
+        
+        if rms > self.config.silence_threshold:
+            # Audio detected
+            self._silence_start = None
+            self._last_audio_time = current_time
+        else:
+            # Silence detected
+            if self._silence_start is None:
+                self._silence_start = current_time
+    
+    def _should_segment_on_silence(self) -> bool:
+        """Check if we should create a segment based on silence detection."""
+        if self._silence_start is None or self._last_audio_time is None:
+            return False
+        
+        current_time = time.time()
+        silence_duration = current_time - self._silence_start
+        
+        # Only segment if we have some audio and sufficient silence
+        has_audio = len(self._audio_buffer) > 0
+        sufficient_silence = silence_duration >= self.config.silence_duration
+        
+        return has_audio and sufficient_silence
+    
+    def _save_current_buffer(self) -> None:
+        """Save current audio buffer to file and create AudioSegment."""
+        with self._buffer_lock:
+            if not self._audio_buffer:
+                return
+            
+            # Concatenate all audio data
+            audio_data = np.concatenate(self._audio_buffer)
+            self._audio_buffer.clear()
+        
+        if len(audio_data) == 0:
+            return
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now()
+        filename = f"audio_{timestamp.strftime('%Y%m%d_%H%M%S')}.wav"
+        file_path = self.output_dir / filename
+        
+        try:
+            # Save as WAV file
+            with wave.open(str(file_path), 'wb') as wav_file:
+                wav_file.setnchannels(self.config.channels)
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(self.config.sample_rate)
+                
+                # Convert float32 to int16
+                audio_int16 = (audio_data * 32767).astype(np.int16)
+                wav_file.writeframes(audio_int16.tobytes())
+            
+            # Create AudioSegment object
+            duration = len(audio_data) / self.config.sample_rate
+            end_time = timestamp
+            start_time = datetime.fromtimestamp(timestamp.timestamp() - duration)
+            
+            segment = AudioSegment(
+                file_path=file_path,
+                start_time=start_time,
+                end_time=end_time,
+                duration=duration,
+                sample_rate=self.config.sample_rate
+            )
+            
+            # Add to queue and call callback
+            self._segment_queue.put(segment)
+            
+            if self._on_segment_complete:
+                try:
+                    self._on_segment_complete(segment)
+                except Exception as e:
+                    self.logger.error(f"Error in segment callback: {e}")
+            
+            self.logger.info(f"Audio segment saved: {filename} ({duration:.1f}s)")
+            
+        except Exception as e:
+            self.logger.error(f"Error saving audio segment: {e}")
+            # Clean up file if it was partially created
+            if file_path.exists():
+                file_path.unlink()
+    
+    def get_available_devices(self) -> List[dict]:
+        """Get list of available audio input devices."""
+        try:
+            devices = sd.query_devices()
+            input_devices = []
+            
+            for i, device in enumerate(devices):
+                if device['max_input_channels'] > 0:
+                    input_devices.append({
+                        'id': i,
+                        'name': device['name'],
+                        'channels': device['max_input_channels'],
+                        'sample_rate': device['default_samplerate']
+                    })
+            
+            return input_devices
+        except Exception as e:
+            self.logger.error(f"Error querying audio devices: {e}")
+            return []
+    
+    def test_device(self, device_id: Optional[int] = None) -> bool:
+        """Test if the specified audio device is working."""
+        try:
+            with sd.InputStream(
+                samplerate=self.config.sample_rate,
+                channels=self.config.channels,
+                device=device_id,
+                blocksize=1024
+            ):
+                time.sleep(0.1)  # Brief test
+            return True
+        except Exception as e:
+            self.logger.error(f"Device test failed: {e}")
+            return False
