@@ -1,6 +1,7 @@
 """Command-line interface for the transcription application."""
 
 import argparse
+import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -78,6 +79,9 @@ def cmd_test_summary(text_file: str):
         text_content = f.read()
     
     print(f"Generating summary for: {text_file}")
+    print(f"Using provider: {config.summary.provider}")
+    print(f"Using model: {config.summary.model}")
+    
     summary = summarization_service.generate_daily_summary(text_content, date.today())
     
     if summary:
@@ -154,7 +158,18 @@ def cmd_status():
     print(f"  Audio device: {config.audio.device_id or 'Default'}")
     print(f"  Transcription model: {config.transcription.model_size}")
     print(f"  Summary provider: {config.summary.provider}")
+    print(f"  Summary model: {config.summary.model}")
     print(f"  Google Docs: {'Enabled' if config.google_docs.enabled else 'Disabled'}")
+    
+    # Check API keys
+    load_environment_variables()
+    print("\nAPI Key Status:")
+    if config.summary.provider == "openai":
+        openai_key = os.getenv('OPENAI_API_KEY')
+        print(f"  OpenAI API Key: {'✅ Set' if openai_key else '❌ Missing'}")
+    elif config.summary.provider == "claude":
+        claude_key = os.getenv('CLAUDE_API_KEY')
+        print(f"  Claude API Key: {'✅ Set' if claude_key else '❌ Missing'}")
     
     # Check storage directories
     paths = config.get_storage_paths()

@@ -33,8 +33,8 @@ class TranscriptionConfig:
 @dataclass
 class SummaryConfig:
     """Summary generation configuration."""
-    provider: str = "openai"  # openai, local
-    model: str = "gpt-3.5-turbo"
+    provider: str = "openai"  # openai, claude, local
+    model: str = "gpt-3.5-turbo"  # For OpenAI: gpt-3.5-turbo, gpt-4, etc. For Claude: claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229
     max_tokens: int = 500
     temperature: float = 0.3
     daily_summary: bool = True
@@ -155,6 +155,11 @@ def load_environment_variables() -> None:
 def get_openai_api_key() -> Optional[str]:
     """Get OpenAI API key from environment."""
     return os.getenv('OPENAI_API_KEY')
+
+
+def get_claude_api_key() -> Optional[str]:
+    """Get Claude API key from environment."""
+    return os.getenv('CLAUDE_API_KEY')
 
 
 def get_google_credentials_path() -> str:

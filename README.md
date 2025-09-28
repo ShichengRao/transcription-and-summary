@@ -35,7 +35,7 @@ A cross-platform, privacy-focused tool that continuously transcribes microphone 
 3. **Configure Environment**
    ```bash
    cp .env.example .env
-   # Edit .env with your OpenAI API key
+   # Edit .env with your AI API key (OpenAI or Claude)
    ```
 
 4. **Run the Application**
