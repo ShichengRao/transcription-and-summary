@@ -12,6 +12,11 @@ try:
 except ImportError:
     openai = None
 
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
+
 from .config import SummaryConfig
 from .logger import LoggerMixin
 
@@ -36,10 +41,13 @@ class SummarizationService(LoggerMixin):
     
     def __init__(self, config: SummaryConfig):
         self.config = config
-        self._client: Optional[openai.OpenAI] = None
+        self._openai_client: Optional[openai.OpenAI] = None
+        self._claude_client: Optional[anthropic.Anthropic] = None
         
         if config.provider == "openai":
             self._initialize_openai()
+        elif config.provider == "claude":
+            self._initialize_claude()
         
         self.logger.info(f"SummarizationService initialized with provider: {config.provider}")
     
@@ -55,10 +63,27 @@ class SummarizationService(LoggerMixin):
             return
         
         try:
-            self._client = openai.OpenAI(api_key=api_key)
+            self._openai_client = openai.OpenAI(api_key=api_key)
             self.logger.info("OpenAI client initialized successfully")
         except Exception as e:
             self.logger.error(f"Failed to initialize OpenAI client: {e}")
+    
+    def _initialize_claude(self) -> None:
+        """Initialize Claude client."""
+        if anthropic is None:
+            self.logger.error("Anthropic package not installed. Install with: pip install anthropic")
+            return
+        
+        api_key = os.getenv('CLAUDE_API_KEY')
+        if not api_key:
+            self.logger.error("CLAUDE_API_KEY environment variable not set")
+            return
+        
+        try:
+            self._claude_client = anthropic.Anthropic(api_key=api_key)
+            self.logger.info("Claude client initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Claude client: {e}")
     
     def generate_daily_summary(self, transcript_text: str, date_obj: date) -> Optional[DailySummary]:
         """Generate a comprehensive daily summary from transcript text."""
@@ -103,13 +128,15 @@ class SummarizationService(LoggerMixin):
         """Analyze transcript text using AI to extract insights."""
         if self.config.provider == "openai":
             return self._analyze_with_openai(transcript_text)
+        elif self.config.provider == "claude":
+            return self._analyze_with_claude(transcript_text)
         else:
             self.logger.error(f"Unsupported summarization provider: {self.config.provider}")
             return None
     
     def _analyze_with_openai(self, transcript_text: str) -> Optional[Dict[str, Any]]:
         """Analyze transcript using OpenAI API."""
-        if not self._client:
+        if not self._openai_client:
             self.logger.error("OpenAI client not initialized")
             return None
         
@@ -117,7 +144,7 @@ class SummarizationService(LoggerMixin):
             # Create analysis prompt
             prompt = self._create_analysis_prompt(transcript_text)
             
-            response = self._client.chat.completions.create(
+            response = self._openai_client.chat.completions.create(
                 model=self.config.model,
                 messages=[
                     {
@@ -158,6 +185,55 @@ class SummarizationService(LoggerMixin):
                 
         except Exception as e:
             self.logger.error(f"Error calling OpenAI API: {e}")
+            return None
+    
+    def _analyze_with_claude(self, transcript_text: str) -> Optional[Dict[str, Any]]:
+        """Analyze transcript using Claude API."""
+        if not self._claude_client:
+            self.logger.error("Claude client not initialized")
+            return None
+        
+        try:
+            # Create analysis prompt
+            prompt = self._create_analysis_prompt(transcript_text)
+            
+            response = self._claude_client.messages.create(
+                model=self.config.model,
+                max_tokens=self.config.max_tokens,
+                temperature=self.config.temperature,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
+            
+            # Parse the response
+            response_text = response.content[0].text.strip()
+            
+            # Try to extract JSON from the response
+            try:
+                # Look for JSON block in the response
+                if "```json" in response_text:
+                    json_start = response_text.find("```json") + 7
+                    json_end = response_text.find("```", json_start)
+                    json_text = response_text[json_start:json_end].strip()
+                else:
+                    json_text = response_text
+                
+                analysis = json.loads(json_text)
+                return analysis
+                
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Failed to parse JSON response from Claude: {e}")
+                self.logger.debug(f"Response text: {response_text}")
+                
+                # Fallback: create basic analysis
+                return self._create_fallback_analysis(transcript_text, response_text)
+                
+        except Exception as e:
+            self.logger.error(f"Error calling Claude API: {e}")
             return None
     
     def _create_analysis_prompt(self, transcript_text: str) -> str:
@@ -272,7 +348,7 @@ Respond only with valid JSON.
             # Create weekly summary text
             weekly_text = "\n".join([f"Day {i+1}: {s.summary}" for i, s in enumerate(daily_summaries)])
             
-            if self.config.provider == "openai" and self._client:
+            if self.config.provider in ["openai", "claude"] and (self._openai_client or self._claude_client):
                 weekly_analysis = self._generate_weekly_analysis(weekly_text, daily_summaries)
             else:
                 weekly_analysis = "Weekly summary of activities and conversations."
@@ -311,23 +387,40 @@ Provide a 3-4 paragraph summary covering:
 Keep it concise but insightful.
 """
             
-            response = self._client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert assistant that provides insightful weekly summaries based on daily activity patterns."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                max_tokens=400,
-                temperature=self.config.temperature
-            )
+            if self.config.provider == "openai" and self._openai_client:
+                response = self._openai_client.chat.completions.create(
+                    model=self.config.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are an expert assistant that provides insightful weekly summaries based on daily activity patterns."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    max_tokens=400,
+                    temperature=self.config.temperature
+                )
+                return response.choices[0].message.content.strip()
+                
+            elif self.config.provider == "claude" and self._claude_client:
+                response = self._claude_client.messages.create(
+                    model=self.config.model,
+                    max_tokens=400,
+                    temperature=self.config.temperature,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": f"You are an expert assistant that provides insightful weekly summaries based on daily activity patterns.\n\n{prompt}"
+                        }
+                    ]
+                )
+                return response.content[0].text.strip()
             
-            return response.choices[0].message.content.strip()
+            else:
+                return "Weekly summary of activities and conversations."
             
         except Exception as e:
             self.logger.error(f"Error generating weekly analysis: {e}")

@@ -64,8 +64,28 @@ nano .env
 ```
 
 Required environment variables:
-- `OPENAI_API_KEY`: Your OpenAI API key for summarization
+- `OPENAI_API_KEY`: Your OpenAI API key for summarization (if using OpenAI)
+- `CLAUDE_API_KEY`: Your Claude API key for summarization (if using Claude)
 - `GOOGLE_CREDENTIALS_PATH`: Path to Google Cloud credentials file (optional)
+
+Note: You only need one AI API key - either OpenAI or Claude, depending on your preference.
+
+#### AI Provider Setup
+
+**Option 1: OpenAI (GPT models)**
+1. Get an API key from [OpenAI](https://platform.openai.com/api-keys)
+2. Add to `.env`: `OPENAI_API_KEY=your_key_here`
+3. Set in config: `provider: "openai"` and `model: "gpt-3.5-turbo"`
+
+**Option 2: Claude (Anthropic)**
+1. Get an API key from [Anthropic Console](https://console.anthropic.com/)
+2. Add to `.env`: `CLAUDE_API_KEY=your_key_here`
+3. Set in config: `provider: "claude"` and `model: "claude-3-haiku-20240307"`
+
+Available Claude models:
+- `claude-3-haiku-20240307` (fastest, most cost-effective)
+- `claude-3-sonnet-20240229` (balanced performance)
+- `claude-3-opus-20240229` (highest capability)
 
 #### Google Docs Setup (Optional)
 
@@ -147,8 +167,8 @@ transcription:
   device: "auto"  # auto, cpu, cuda
 
 summary:
-  provider: "openai"
-  model: "gpt-3.5-turbo"
+  provider: "openai"  # or "claude"
+  model: "gpt-3.5-turbo"  # OpenAI: gpt-3.5-turbo, gpt-4, etc. Claude: claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229
   daily_summary: true
   summary_time: "23:00"
 
