@@ -29,6 +29,12 @@ A cross-platform, privacy-focused tool that continuously transcribes microphone 
    cd transcription-and-summary
    python3 -m venv venv
    source venv/bin/activate
+   pip install --upgrade pip
+   
+   # Use smart installer (recommended)
+   python install.py
+   
+   # Or manual installation
    pip install -r requirements.txt
    ```
 
@@ -44,6 +50,26 @@ A cross-platform, privacy-focused tool that continuously transcribes microphone 
    ```
 
 For detailed setup instructions, see [SETUP.md](SETUP.md).
+
+### 🚨 Installation Issues?
+
+If you encounter dependency errors:
+
+```bash
+# Try the smart installer
+python install.py
+
+# Or use minimal installation
+pip install -r requirements-minimal.txt
+
+# Test what's working
+python test_installation.py
+```
+
+**Common fixes:**
+- Python 3.12+: Use `requirements-cpu.txt` 
+- PyTorch errors: Use `requirements-minimal.txt` + `pip install openai-whisper`
+- macOS M1/M2: Use CPU-only PyTorch installation
 
 ## Configuration
 

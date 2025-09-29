@@ -48,11 +48,69 @@ cd transcription-and-summary
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install Python dependencies
+# Upgrade pip first
+pip install --upgrade pip
+
+# Choose installation method (see options below)
+```
+
+### 3. Install Dependencies
+
+#### Option 1: Smart Installer (Recommended)
+```bash
+python install.py
+```
+The smart installer will detect your system and choose the best installation method.
+
+#### Option 2: Manual Installation
+
+**Full Installation (if you have compatible Python 3.8-3.11):**
+```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configuration
+**CPU-Only Installation (lighter, more compatible):**
+```bash
+pip install -r requirements-cpu.txt
+```
+
+**Minimal Installation (if you have dependency issues):**
+```bash
+pip install -r requirements-minimal.txt
+# Then manually install transcription support:
+pip install openai-whisper
+```
+
+#### Option 3: Platform-Specific Instructions
+
+**macOS with Apple Silicon (M1/M2):**
+```bash
+# Install dependencies first
+brew install ffmpeg portaudio
+
+# Use CPU-only PyTorch for better compatibility
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements-cpu.txt
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+# Install system dependencies
+sudo apt-get update
+sudo apt-get install python3-dev build-essential ffmpeg portaudio19-dev
+
+# Install Python packages
+pip install -r requirements.txt
+```
+
+**Windows:**
+```bash
+# Install Visual C++ Build Tools first
+# Then install packages
+pip install -r requirements-cpu.txt
+```
+
+### 4. Configuration
 
 #### Environment Variables
 ```bash
@@ -109,7 +167,7 @@ Available Claude models:
    - Grant permissions to access Google Docs and Drive
    - Token will be saved for future use
 
-### 4. Test Installation
+### 5. Test Installation
 
 ```bash
 # Test basic functionality
@@ -185,7 +243,79 @@ storage:
 
 ## Troubleshooting
 
-### Common Issues
+### Installation Issues
+
+#### Python Version Compatibility
+```bash
+# Check your Python version
+python --version
+
+# Supported versions: 3.8, 3.9, 3.10, 3.11
+# Python 3.12+ may have limited package compatibility
+```
+
+#### PyTorch Installation Errors
+If you get errors about PyTorch versions:
+
+```bash
+# Try CPU-only installation
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Or use older compatible versions
+pip install torch==1.13.1 torchaudio==0.13.1
+
+# Alternative: Use minimal installation
+pip install -r requirements-minimal.txt
+pip install openai-whisper
+```
+
+#### Package Dependency Conflicts
+```bash
+# Create fresh virtual environment
+rm -rf venv
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+
+# Try minimal installation first
+pip install -r requirements-minimal.txt
+
+# Then add components one by one
+pip install faster-whisper  # or openai-whisper
+```
+
+#### Platform-Specific Issues
+
+**macOS Issues:**
+```bash
+# If you get compiler errors
+xcode-select --install
+
+# For Apple Silicon compatibility
+export ARCHFLAGS="-arch arm64"
+pip install --no-cache-dir package_name
+```
+
+**Linux Issues:**
+```bash
+# Missing system libraries
+sudo apt-get install python3-dev build-essential
+sudo apt-get install portaudio19-dev libasound2-dev
+
+# Permission issues
+sudo usermod -a -G audio $USER
+```
+
+**Windows Issues:**
+```bash
+# Install Visual C++ Build Tools
+# Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+
+# Use pre-compiled wheels
+pip install --only-binary=all package_name
+```
+
+### Runtime Issues
 
 #### Audio Device Problems
 ```bash
@@ -200,15 +330,44 @@ python -m src.cli test audio
 - **Out of Memory**: Use smaller model (`tiny` or `base`)
 - **Slow Performance**: Use GPU if available, or smaller model
 - **Language Issues**: Set specific language in config instead of "auto"
+- **Model Download Fails**: Check internet connection and disk space
 
-#### Google Docs Authentication
-- Ensure `credentials.json` is in the project root
-- Check that Google Docs and Drive APIs are enabled
-- Verify OAuth consent screen is configured
+#### API Issues
+- **OpenAI Errors**: Check API key and billing status
+- **Claude Errors**: Verify API key and rate limits
+- **Google Docs Errors**: Ensure credentials.json is valid
 
 #### Permission Issues (macOS)
 - Grant microphone access in System Preferences → Security & Privacy
 - Allow terminal/application to access microphone
+
+### Alternative Configurations
+
+#### AI-Only Mode (No Local Transcription)
+If you can't install transcription dependencies:
+
+```yaml
+# config.yaml
+transcription:
+  model_size: "disabled"  # Skip local transcription
+
+summary:
+  provider: "openai"  # or "claude"
+  model: "gpt-3.5-turbo"
+```
+
+#### Lightweight Mode
+For older/slower systems:
+
+```yaml
+audio:
+  chunk_duration: 600  # 10 minutes instead of 5
+  sample_rate: 8000    # Lower quality but faster
+
+transcription:
+  model_size: "tiny"   # Smallest model
+  device: "cpu"        # Force CPU usage
+```
 
 ### Performance Optimization
 
