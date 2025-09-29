@@ -56,14 +56,25 @@ def detect_platform():
 
 def install_pytorch_cpu():
     """Install CPU-only PyTorch."""
-    print("Installing PyTorch (CPU-only)...")
+    print("Installing PyTorch...")
     
-    # Try different PyTorch installation methods
-    commands = [
-        "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu",
-        "pip install torch==1.13.1 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cpu",
-        "pip install torch torchaudio"
-    ]
+    platform_type = detect_platform()
+    
+    # Different strategies for different platforms
+    if platform_type.startswith("macos"):
+        # macOS: Standard installation works better than CPU index
+        commands = [
+            "pip install torch torchaudio",
+            "pip install torch==2.0.1 torchaudio==2.0.2",
+            "pip install torch==1.13.1 torchaudio==0.13.1"
+        ]
+    else:
+        # Linux/Windows: Try CPU index first
+        commands = [
+            "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu",
+            "pip install torch==2.0.1 torchaudio==2.0.2",
+            "pip install torch torchaudio"
+        ]
     
     for cmd in commands:
         print(f"Trying: {cmd}")
@@ -72,7 +83,7 @@ def install_pytorch_cpu():
             print("✅ PyTorch installed successfully")
             return True
         else:
-            print(f"Failed: {stderr}")
+            print(f"Failed: {stderr[:100]}...")
     
     print("❌ Failed to install PyTorch")
     return False
@@ -155,23 +166,34 @@ def main():
     elif choice == "4":
         # Auto-detect
         print("\nAuto-detecting best installation method...")
+        platform_type = detect_platform()
         
-        # Try minimal first (most likely to succeed)
-        if install_requirements("requirements-minimal.txt"):
-            print("✅ Minimal installation successful")
-            
-            # Try to add transcription capabilities
-            print("\nAttempting to add transcription support...")
-            if install_pytorch_cpu():
-                pytorch_success, _, _ = run_command("pip install faster-whisper")
-                if pytorch_success:
-                    print("✅ Transcription support added")
-                else:
-                    print("⚠️  Transcription support failed - you can use AI-only mode")
-            
-            success = True
+        if platform_type.startswith("macos"):
+            print("macOS detected - using macOS-optimized installation...")
+            # For macOS, try CPU requirements first
+            if install_requirements("requirements-cpu.txt"):
+                print("✅ macOS installation successful")
+                success = True
+            else:
+                print("Trying minimal installation...")
+                success = install_requirements("requirements-minimal.txt")
         else:
-            print("❌ Installation failed")
+            # For other platforms, try minimal first (most likely to succeed)
+            if install_requirements("requirements-minimal.txt"):
+                print("✅ Minimal installation successful")
+                
+                # Try to add transcription capabilities
+                print("\nAttempting to add transcription support...")
+                if install_pytorch_cpu():
+                    pytorch_success, _, _ = run_command("pip install faster-whisper")
+                    if pytorch_success:
+                        print("✅ Transcription support added")
+                    else:
+                        print("⚠️  Transcription support failed - you can use AI-only mode")
+                
+                success = True
+            else:
+                print("❌ Installation failed")
     
     if success:
         print("\n🎉 Installation completed!")

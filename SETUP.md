@@ -83,13 +83,19 @@ pip install openai-whisper
 
 #### Option 3: Platform-Specific Instructions
 
-**macOS with Apple Silicon (M1/M2):**
+**macOS (Intel and Apple Silicon):**
 ```bash
-# Install dependencies first
+# Install system dependencies first
 brew install ffmpeg portaudio
 
-# Use CPU-only PyTorch for better compatibility
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# For macOS, use standard PyTorch installation (works better than CPU index)
+pip install torch torchaudio
+
+# Then install other requirements
+pip install -r requirements-cpu.txt
+
+# Alternative if above fails:
+pip install torch==2.0.1 torchaudio==2.0.2
 pip install -r requirements-cpu.txt
 ```
 

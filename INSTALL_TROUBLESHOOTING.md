@@ -2,21 +2,41 @@
 
 ## Quick Fixes for Common Issues
 
-### 1. PyTorch Version Conflicts
+### 1. PyTorch Installation Issues
 
 **Error:** `Could not find a version that satisfies the requirement torch>=2.0.0`
+**Error:** `ERROR: Could not find a version that satisfies the requirement torch (from versions: none)`
 
-**Solutions:**
+**Solutions by Platform:**
+
+**macOS (your issue):**
 ```bash
-# Option A: Use CPU-only PyTorch
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# The CPU index URL doesn't work on macOS - use standard installation
+pip install torch torchaudio
 pip install -r requirements-cpu.txt
 
-# Option B: Use minimal installation
+# If that fails, try specific versions:
+pip install torch==2.0.1 torchaudio==2.0.2
+pip install -r requirements-cpu.txt
+
+# Or use the macOS-specific installer:
+python install_macos.py
+```
+
+**Linux/Windows:**
+```bash
+# CPU-only PyTorch (works on Linux/Windows)
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements-cpu.txt
+```
+
+**Any Platform:**
+```bash
+# Minimal installation (no PyTorch)
 pip install -r requirements-minimal.txt
 pip install openai-whisper
 
-# Option C: Use smart installer
+# Smart installer
 python install.py
 ```
 
@@ -36,12 +56,25 @@ python --version
 
 ### 3. Platform-Specific Issues
 
-#### macOS (especially M1/M2)
+#### macOS (Intel and Apple Silicon M1/M2/M3)
 ```bash
 # Install system dependencies
 brew install ffmpeg portaudio
 
-# Use CPU-only installation for better compatibility
+# Method 1: Standard PyTorch (recommended for macOS)
+pip install torch torchaudio
+pip install -r requirements-cpu.txt
+
+# Method 2: If Method 1 fails, try specific versions
+pip install torch==2.0.1 torchaudio==2.0.2
+pip install -r requirements-cpu.txt
+
+# Method 3: Minimal installation (no PyTorch)
+pip install -r requirements-minimal.txt
+pip install openai-whisper
+
+# Method 4: Use conda instead of pip
+conda install pytorch torchaudio -c pytorch
 pip install -r requirements-cpu.txt
 ```
 
