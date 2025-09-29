@@ -1,10 +1,10 @@
+# Minimal requirements without heavy ML dependencies
+# Use this if you have issues with torch/faster-whisper installation
+
 # Core dependencies
 sounddevice>=0.4.6
 numpy>=1.21.0
 scipy>=1.7.0
-
-# Transcription - flexible versions for compatibility
-faster-whisper>=0.9.0
 
 # Google API integration
 google-api-python-client>=2.50.0
@@ -27,7 +27,6 @@ Pillow>=8.0.0
 # Logging and monitoring
 rich>=12.0.0
 
-# Development dependencies
-pytest>=6.0.0
-black>=22.0.0
-flake8>=4.0.0
+# Alternative transcription (lighter than faster-whisper)
+# Note: You'll need to install whisper separately:
+# pip install openai-whisper
