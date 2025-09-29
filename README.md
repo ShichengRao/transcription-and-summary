@@ -31,7 +31,10 @@ A cross-platform, privacy-focused tool that continuously transcribes microphone 
    source venv/bin/activate
    pip install --upgrade pip
    
-   # Use smart installer (recommended)
+   # macOS users (recommended)
+   python install_macos.py
+   
+   # Other platforms - use smart installer
    python install.py
    
    # Or manual installation
@@ -69,7 +72,7 @@ python test_installation.py
 **Common fixes:**
 - Python 3.12+: Use `requirements-cpu.txt` 
 - PyTorch errors: Use `requirements-minimal.txt` + `pip install openai-whisper`
-- macOS M1/M2: Use CPU-only PyTorch installation
+- **macOS**: Use `python install_macos.py` or `pip install torch torchaudio` (not CPU index)
 
 ## Configuration
 
