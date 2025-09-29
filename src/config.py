@@ -22,9 +22,10 @@ class AudioConfig:
 @dataclass
 class TranscriptionConfig:
     """Transcription engine configuration."""
+    provider: str = "local"  # local, openai_api, disabled
     model_size: str = "base"  # tiny, base, small, medium, large
     language: str = "en"
-    compute_type: str = "float16"
+    compute_type: str = "float32"  # float32 for better compatibility, float16 for speed
     device: str = "auto"  # auto, cpu, cuda
     beam_size: int = 5
     temperature: float = 0.0

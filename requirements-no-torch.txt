@@ -1,10 +1,13 @@
+# PyTorch-free requirements - for systems that can't install PyTorch
+# This provides AI summarization without local transcription
+
 # Core dependencies
 sounddevice>=0.4.6
-numpy>=1.21.0,<2.0.0  # Pin to NumPy 1.x for compatibility with faster-whisper
+numpy>=1.21.0,<2.0.0  # Pin to NumPy 1.x for compatibility
 scipy>=1.7.0
 
-# Transcription - flexible versions for compatibility
-faster-whisper>=0.9.0
+# Alternative transcription (cloud-based)
+openai-whisper>=20230314
 
 # Google API integration
 google-api-python-client>=2.50.0

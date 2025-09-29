@@ -14,6 +14,11 @@ try:
 except ImportError:
     WhisperModel = None
 
+try:
+    import whisper as openai_whisper
+except ImportError:
+    openai_whisper = None
+
 from .config import TranscriptionConfig
 from .logger import LoggerMixin
 from .audio_capture import AudioSegment
@@ -36,8 +41,9 @@ class TranscriptionService(LoggerMixin):
     
     def __init__(self, config: TranscriptionConfig):
         self.config = config
-        self._model: Optional[WhisperModel] = None
+        self._model: Optional[Any] = None
         self._model_lock = threading.Lock()
+        self._backend: str = "unknown"
         
         # Processing queue and thread
         self._transcription_queue: Queue[AudioSegment] = Queue()
@@ -57,34 +63,81 @@ class TranscriptionService(LoggerMixin):
     
     def initialize_model(self) -> bool:
         """Initialize the Whisper model."""
-        if WhisperModel is None:
-            self.logger.error("faster-whisper not installed. Install with: pip install faster-whisper")
+        # Try faster-whisper first, then fallback to openai-whisper
+        if WhisperModel is not None:
+            return self._initialize_faster_whisper()
+        elif openai_whisper is not None:
+            return self._initialize_openai_whisper()
+        else:
+            self.logger.error("No transcription backend available. Install with: pip install faster-whisper OR pip install openai-whisper")
             return False
         
+        # This method is now split into backend-specific methods
+        pass
+    
+    def _initialize_faster_whisper(self) -> bool:
+        """Initialize faster-whisper backend."""
         try:
             with self._model_lock:
                 if self._model is not None:
                     return True
                 
-                self.logger.info(f"Loading Whisper model: {self.config.model_size}")
+                self.logger.info(f"Loading faster-whisper model: {self.config.model_size}")
                 
                 # Determine device
                 device = self.config.device
                 if device == "auto":
-                    import torch
-                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                    try:
+                        import torch
+                        device = "cuda" if torch.cuda.is_available() else "cpu"
+                    except ImportError:
+                        device = "cpu"
                 
-                self._model = WhisperModel(
-                    self.config.model_size,
-                    device=device,
-                    compute_type=self.config.compute_type
-                )
+                # Try float16 first, fallback to float32 for compatibility
+                compute_type = self.config.compute_type
+                try:
+                    self._model = WhisperModel(
+                        self.config.model_size,
+                        device=device,
+                        compute_type=compute_type
+                    )
+                except Exception as e:
+                    if "float16" in str(e) and compute_type == "float16":
+                        self.logger.warning(f"float16 not supported, falling back to float32: {e}")
+                        compute_type = "float32"
+                        self._model = WhisperModel(
+                            self.config.model_size,
+                            device=device,
+                            compute_type=compute_type
+                        )
+                    else:
+                        raise
                 
-                self.logger.info(f"Whisper model loaded successfully on {device}")
+                self.logger.info(f"faster-whisper model loaded successfully on {device}")
+                self._backend = "faster_whisper"
                 return True
                 
         except Exception as e:
-            self.logger.error(f"Failed to initialize Whisper model: {e}")
+            self.logger.error(f"Failed to initialize faster-whisper model: {e}")
+            return False
+    
+    def _initialize_openai_whisper(self) -> bool:
+        """Initialize openai-whisper backend."""
+        try:
+            with self._model_lock:
+                if self._model is not None:
+                    return True
+                
+                self.logger.info(f"Loading openai-whisper model: {self.config.model_size}")
+                
+                self._model = openai_whisper.load_model(self.config.model_size)
+                
+                self.logger.info(f"openai-whisper model loaded successfully")
+                self._backend = "openai_whisper"
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"Failed to initialize openai-whisper model: {e}")
             return False
     
     def start_processing(self) -> bool:
@@ -147,13 +200,28 @@ class TranscriptionService(LoggerMixin):
             start_time = time.time()
             
             with self._model_lock:
-                segments, info = self._model.transcribe(
-                    str(audio_path),
-                    language=self.config.language if self.config.language != "auto" else None,
-                    beam_size=self.config.beam_size,
-                    temperature=self.config.temperature,
-                    word_timestamps=True
-                )
+                if self._backend == "faster_whisper":
+                    segments, info = self._model.transcribe(
+                        str(audio_path),
+                        language=self.config.language if self.config.language != "auto" else None,
+                        beam_size=self.config.beam_size,
+                        temperature=self.config.temperature,
+                        word_timestamps=True
+                    )
+                elif self._backend == "openai_whisper":
+                    result = self._model.transcribe(
+                        str(audio_path),
+                        language=self.config.language if self.config.language != "auto" else None,
+                        temperature=self.config.temperature
+                    )
+                    # Convert openai-whisper format to faster-whisper format
+                    segments = self._convert_openai_segments(result["segments"])
+                    info = type('Info', (), {
+                        'language': result.get('language', 'en'),
+                        'language_probability': 1.0
+                    })()
+                else:
+                    raise ValueError(f"Unknown backend: {self._backend}")
             
             # Collect all segments and build full text
             segment_list = []
@@ -248,13 +316,28 @@ class TranscriptionService(LoggerMixin):
             start_time = time.time()
             
             with self._model_lock:
-                segments, info = self._model.transcribe(
-                    str(segment.file_path),
-                    language=self.config.language if self.config.language != "auto" else None,
-                    beam_size=self.config.beam_size,
-                    temperature=self.config.temperature,
-                    word_timestamps=True
-                )
+                if self._backend == "faster_whisper":
+                    segments, info = self._model.transcribe(
+                        str(segment.file_path),
+                        language=self.config.language if self.config.language != "auto" else None,
+                        beam_size=self.config.beam_size,
+                        temperature=self.config.temperature,
+                        word_timestamps=True
+                    )
+                elif self._backend == "openai_whisper":
+                    result = self._model.transcribe(
+                        str(segment.file_path),
+                        language=self.config.language if self.config.language != "auto" else None,
+                        temperature=self.config.temperature
+                    )
+                    # Convert openai-whisper format to faster-whisper format
+                    segments = self._convert_openai_segments(result["segments"])
+                    info = type('Info', (), {
+                        'language': result.get('language', 'en'),
+                        'language_probability': 1.0
+                    })()
+                else:
+                    raise ValueError(f"Unknown backend: {self._backend}")
             
             # Collect all segments and build full text
             segment_list = []
@@ -316,6 +399,20 @@ class TranscriptionService(LoggerMixin):
                 self.logger.debug(f"Cleaned up audio file: {file_path.name}")
         except Exception as e:
             self.logger.error(f"Error cleaning up audio file {file_path}: {e}")
+    
+    def _convert_openai_segments(self, openai_segments: List[Dict[str, Any]]) -> List[Any]:
+        """Convert openai-whisper segments to faster-whisper format."""
+        converted_segments = []
+        for seg in openai_segments:
+            # Create a simple object that mimics faster-whisper segment
+            segment_obj = type('Segment', (), {
+                'start': seg.get('start', 0.0),
+                'end': seg.get('end', 0.0),
+                'text': seg.get('text', ''),
+                'avg_logprob': seg.get('avg_logprob', 0.0)
+            })()
+            converted_segments.append(segment_obj)
+        return converted_segments
     
     def get_supported_languages(self) -> List[str]:
         """Get list of supported languages."""

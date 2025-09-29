@@ -59,20 +59,23 @@ For detailed setup instructions, see [SETUP.md](SETUP.md).
 If you encounter dependency errors:
 
 ```bash
-# Try the smart installer
-python install.py
+# Quick fix for macOS PyTorch issues
+python quick_fix_macos.py
 
-# Or use minimal installation
-pip install -r requirements-minimal.txt
+# Or try diagnostic + PyTorch-free installation
+python diagnose_python.py
+python install_no_torch.py
 
 # Test what's working
 python test_installation.py
 ```
 
 **Common fixes:**
-- Python 3.12+: Use `requirements-cpu.txt` 
-- PyTorch errors: Use `requirements-minimal.txt` + `pip install openai-whisper`
-- **macOS**: Use `python install_macos.py` or `pip install torch torchaudio` (not CPU index)
+- **Python 3.13+**: Downgrade to Python 3.12 (PyTorch not yet compatible)
+- **NumPy 2.x issues**: Use `pip install "numpy<2.0.0"`
+- **PyTorch won't install**: Use `python install_no_torch.py` (cloud transcription)
+- **macOS issues**: Use `python quick_fix_macos.py`
+- **Any platform**: `pip install -r requirements-no-torch.txt`
 
 ## Configuration
 

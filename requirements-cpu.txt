@@ -3,7 +3,7 @@
 
 # Core dependencies
 sounddevice>=0.4.6
-numpy>=1.21.0
+numpy>=1.21.0,<2.0.0  # Pin to NumPy 1.x for compatibility with faster-whisper
 scipy>=1.7.0
 
 # Transcription - CPU only
