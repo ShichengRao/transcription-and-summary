@@ -6,6 +6,10 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+# Fix OpenMP and Intel MKL warnings
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+os.environ['MKL_THREADING_LAYER'] = 'GNU'
+
 from .config import AppConfig, load_environment_variables
 from .logger import setup_logger
 from .automation import TranscriptionApp

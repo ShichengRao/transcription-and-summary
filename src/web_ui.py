@@ -7,7 +7,12 @@ from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from flask import Flask, render_template_string, jsonify, request, redirect, url_for
+try:
+    from flask import Flask, render_template_string, jsonify, request, redirect, url_for
+    FLASK_AVAILABLE = True
+except ImportError:
+    FLASK_AVAILABLE = False
+    Flask = None
 
 from .logger import LoggerMixin
 
@@ -16,6 +21,11 @@ class WebUI(LoggerMixin):
     """Simple web interface for monitoring and controlling the transcription app."""
     
     def __init__(self, app_instance, host: str = "127.0.0.1", port: int = 8080):
+        if not FLASK_AVAILABLE:
+            self.logger.error("Flask not available. Install with: pip install flask")
+            self.flask_app = None
+            return
+            
         self.app_instance = app_instance
         self.host = host
         self.port = port
@@ -36,28 +46,41 @@ class WebUI(LoggerMixin):
     
     def start(self) -> None:
         """Start the web UI server."""
+        if not FLASK_AVAILABLE or not self.flask_app:
+            self.logger.error("Cannot start web UI - Flask not available")
+            return
+            
         if self.running:
             return
         
-        self.running = True
-        
-        # Start heartbeat thread
-        self.heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
-        self.heartbeat_thread.start()
-        
-        # Start Flask in a separate thread
-        flask_thread = threading.Thread(
-            target=lambda: self.flask_app.run(
-                host=self.host, 
-                port=self.port, 
-                debug=False, 
-                use_reloader=False
-            ),
-            daemon=True
-        )
-        flask_thread.start()
-        
-        self.logger.info(f"Web UI started at http://{self.host}:{self.port}")
+        try:
+            self.running = True
+            
+            # Start heartbeat thread
+            self.heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+            self.heartbeat_thread.start()
+            
+            # Start Flask in a separate thread
+            flask_thread = threading.Thread(
+                target=lambda: self.flask_app.run(
+                    host=self.host, 
+                    port=self.port, 
+                    debug=False, 
+                    use_reloader=False,
+                    threaded=True
+                ),
+                daemon=True
+            )
+            flask_thread.start()
+            
+            # Give Flask a moment to start
+            time.sleep(1)
+            
+            self.logger.info(f"Web UI started at http://{self.host}:{self.port}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to start web UI: {e}")
+            self.running = False
     
     def stop(self) -> None:
         """Stop the web UI server."""
