@@ -234,6 +234,12 @@ class AudioCapture(LoggerMixin):
         if len(audio_data) == 0:
             return
         
+        # Check minimum duration (avoid very short segments)
+        duration = len(audio_data) / self.config.sample_rate
+        if duration < 1.0:  # Minimum 1 second
+            self.logger.debug(f"Skipping short audio segment ({duration:.1f}s)")
+            return
+        
         # Generate filename with timestamp
         timestamp = datetime.now()
         filename = f"audio_{timestamp.strftime('%Y%m%d_%H%M%S')}.wav"
@@ -251,7 +257,6 @@ class AudioCapture(LoggerMixin):
                 wav_file.writeframes(audio_int16.tobytes())
             
             # Create AudioSegment object
-            duration = len(audio_data) / self.config.sample_rate
             end_time = timestamp
             start_time = datetime.fromtimestamp(timestamp.timestamp() - duration)
             
