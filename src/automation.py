@@ -84,9 +84,14 @@ class TranscriptionApp(LoggerMixin):
             
             # Start web UI if enabled
             if self.config.ui.web_dashboard:
-                self._web_ui = WebUI(self, self.config.ui.web_host, self.config.ui.web_port)
-                self._web_ui.start()
-                self.logger.info(f"Web dashboard available at http://{self.config.ui.web_host}:{self.config.ui.web_port}")
+                self.logger.info("Starting web dashboard...")
+                try:
+                    self._web_ui = WebUI(self, self.config.ui.web_host, self.config.ui.web_port)
+                    self._web_ui.start()
+                    self.logger.info(f"Web dashboard available at http://{self.config.ui.web_host}:{self.config.ui.web_port}")
+                except Exception as e:
+                    self.logger.error(f"Failed to start web dashboard: {e}")
+                    self._web_ui = None
             
             self._running = True
             self._notify_status("Recording and transcribing...")
@@ -148,6 +153,10 @@ class TranscriptionApp(LoggerMixin):
     def is_paused(self) -> bool:
         """Check if application is paused."""
         return self._paused
+    
+    def is_recording(self) -> bool:
+        """Check if application is actively recording."""
+        return self._running and not self._paused and self.audio_capture.is_recording()
     
     def _setup_scheduler(self) -> None:
         """Setup scheduled tasks."""
