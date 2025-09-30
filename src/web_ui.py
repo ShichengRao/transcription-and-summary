@@ -14,6 +14,13 @@ except ImportError:
     FLASK_AVAILABLE = False
     Flask = None
 
+try:
+    from waitress import serve
+    WAITRESS_AVAILABLE = True
+except ImportError:
+    WAITRESS_AVAILABLE = False
+    serve = None
+
 from .logger import LoggerMixin
 
 
@@ -60,18 +67,34 @@ class WebUI(LoggerMixin):
             self.heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
             self.heartbeat_thread.start()
             
-            # Start Flask in a separate thread
-            flask_thread = threading.Thread(
-                target=lambda: self.flask_app.run(
-                    host=self.host, 
-                    port=self.port, 
-                    debug=False, 
-                    use_reloader=False,
-                    threaded=True
-                ),
-                daemon=True
-            )
-            flask_thread.start()
+            # Start web server in a separate thread
+            if WAITRESS_AVAILABLE:
+                # Use production WSGI server
+                server_thread = threading.Thread(
+                    target=lambda: serve(
+                        self.flask_app,
+                        host=self.host,
+                        port=self.port,
+                        threads=4
+                    ),
+                    daemon=True
+                )
+                self.logger.info(f"Starting production web server on {self.host}:{self.port}")
+            else:
+                # Fallback to Flask development server
+                server_thread = threading.Thread(
+                    target=lambda: self.flask_app.run(
+                        host=self.host, 
+                        port=self.port, 
+                        debug=False, 
+                        use_reloader=False,
+                        threaded=True
+                    ),
+                    daemon=True
+                )
+                self.logger.warning("Using Flask development server (install waitress for production)")
+            
+            server_thread.start()
             
             # Give Flask a moment to start
             time.sleep(1)
@@ -244,7 +267,6 @@ class WebUI(LoggerMixin):
                     
                     # Create DailySummary object
                     from .summarization import DailySummary
-                    from datetime import datetime
                     
                     # Convert string dates back to proper objects
                     summary_data['date'] = datetime.fromisoformat(summary_data['date']).date()
