@@ -1,112 +1,262 @@
-# Always-On Local Transcriber & Summarizer
+# Local Transcription & Summary Tool
 
-A cross-platform, privacy-focused tool that continuously transcribes microphone input, generates daily summaries, and syncs to Google Docs.
+A privacy-focused macOS application that continuously transcribes microphone input and generates AI-powered daily summaries using Claude.
+
+## ⚠️ Platform Support
+
+**This tool is designed and tested exclusively for macOS.** Windows and Linux support is not provided or maintained.
 
 ## Features
 
-- **🎤 Continuous Recording**: 24/7 background audio capture with privacy controls
-- **🔒 Local-First**: Speech-to-text processing runs entirely on your device
-- **📝 Smart Transcription**: Powered by OpenAI Whisper for accurate transcription
-- **📊 Daily Summaries**: AI-generated summaries of your daily conversations
-- **☁️ Cloud Sync**: Automatic upload to Google Docs with organized folder structure
-- **⏸️ Privacy Controls**: Easy pause/resume with system tray integration
-- **🔧 Configurable**: Extensive customization options for all features
+- 🎤 **Continuous Recording**: 24/7 background audio capture
+- 🔒 **Privacy-First**: All processing happens locally on your Mac
+- 📝 **Smart Transcription**: Powered by OpenAI Whisper
+- 🤖 **AI Summaries**: Daily summaries generated using Claude
+- ☁️ **Google Docs Sync**: Optional automatic upload to Google Docs
+- ⏸️ **Privacy Controls**: Easy pause/resume functionality
 
-## Quick Start
+## Prerequisites
 
-1. **Install System Dependencies**
-   ```bash
-   # macOS
-   brew install python3 ffmpeg portaudio
-   
-   # Linux (Ubuntu/Debian)
-   sudo apt-get install python3 python3-pip ffmpeg portaudio19-dev
-   ```
+- **macOS** (Intel or Apple Silicon)
+- **Python 3.9-3.12** (Python 3.13+ not yet supported)
+- **Claude API Key** (get one at [console.anthropic.com](https://console.anthropic.com/))
+- **Homebrew** (install at [brew.sh](https://brew.sh))
 
-2. **Setup Project**
-   ```bash
-   git clone https://github.com/abnew123/transcription-and-summary.git
-   cd transcription-and-summary
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install --upgrade pip
-   
-   # macOS users (recommended)
-   python install_macos.py
-   
-   # Other platforms - use smart installer
-   python install.py
-   
-   # Or manual installation
-   pip install -r requirements.txt
-   ```
+## Installation
 
-3. **Configure Environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your AI API key (OpenAI or Claude)
-   ```
-
-4. **Run the Application**
-   ```bash
-   python -m src.main
-   ```
-
-For detailed setup instructions, see [SETUP.md](SETUP.md).
-
-### 🚨 Installation Issues?
-
-If you encounter dependency errors:
+### 1. Install System Dependencies
 
 ```bash
-# Quick fix for macOS PyTorch issues
-python quick_fix_macos.py
+# Install Homebrew (if not already installed)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Or try diagnostic + PyTorch-free installation
-python diagnose_python.py
-python install_no_torch.py
-
-# Test what's working
-python test_installation.py
+# Install required packages
+brew install python3 ffmpeg portaudio
 ```
 
-**Common fixes:**
-- **Python 3.13+**: Downgrade to Python 3.12 (PyTorch not yet compatible)
-- **NumPy 2.x issues**: Use `pip install "numpy<2.0.0"`
-- **PyTorch won't install**: Use `python install_no_torch.py` (cloud transcription)
-- **macOS issues**: Use `python quick_fix_macos.py`
-- **Any platform**: `pip install -r requirements-no-torch.txt`
+### 2. Clone and Setup Project
+
+```bash
+# Clone the repository
+git clone https://github.com/abnew123/transcription-and-summary.git
+cd transcription-and-summary
+
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 3. Configure API Keys
+
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Edit the file with your Claude API key
+nano .env
+```
+
+Add your Claude API key to the `.env` file:
+```
+CLAUDE_API_KEY=your_claude_api_key_here
+```
+
+### 4. Grant Microphone Permissions
+
+1. Open **System Preferences** → **Security & Privacy** → **Privacy**
+2. Select **Microphone** from the left sidebar
+3. Check the box next to **Terminal** (or your terminal app)
+4. If prompted, restart your terminal
+
+## Usage
+
+### Start the Application
+
+```bash
+# Activate virtual environment (if not already active)
+source venv/bin/activate
+
+# Run the application
+python -m src.main
+```
+
+The application will:
+1. Start recording audio in the background
+2. Transcribe audio chunks every 5 minutes
+3. Generate daily summaries at 11 PM
+4. Save all data locally in the `transcripts/` folder
+
+### Control the Application
+
+- **Stop**: Press `Ctrl+C` in the terminal
+- **Pause/Resume**: Use the system tray icon (when available)
+
+### Generate Manual Summary
+
+```bash
+# Generate summary for yesterday
+python -m src.cli generate-summary
+
+# Generate summary for specific date
+python -m src.cli generate-summary --date 2024-01-15
+```
 
 ## Configuration
 
-The application uses a `config.yaml` file for all settings. On first run, a default configuration will be created. Key settings include:
+The application creates a `config.yaml` file on first run. Key settings:
 
-- **Audio**: Sample rate, chunk duration, silence detection
-- **Transcription**: Model size, language, compute device
-- **Summary**: AI provider, model selection, scheduling
-- **Google Docs**: Folder organization, document templates
-- **Storage**: Local file management and cleanup
-- **UI**: System tray, notifications, dashboard
+```yaml
+audio:
+  sample_rate: 16000
+  chunk_duration: 300  # 5 minutes
+  silence_threshold: 0.01
+
+transcription:
+  model_size: "base"  # tiny, base, small, medium, large
+  language: "en"
+  device: "auto"  # auto, cpu, mps (Apple Silicon)
+
+summary:
+  provider: "claude"
+  model: "claude-3-haiku-20240307"  # fastest, most cost-effective
+  daily_summary: true
+  summary_time: "23:00"
+
+storage:
+  base_dir: "transcripts"
+  max_audio_age_days: 7
+  max_transcript_age_days: 365
+```
+
+### Available Claude Models
+
+- `claude-3-haiku-20240307` - Fastest and most cost-effective (recommended)
+- `claude-3-sonnet-20240229` - Balanced performance and capability
+- `claude-3-opus-20240229` - Highest capability (most expensive)
+
+## Optional: Google Docs Integration
+
+To automatically upload summaries to Google Docs:
+
+1. **Create Google Cloud Project**
+   - Go to [Google Cloud Console](https://console.cloud.google.com)
+   - Create a new project
+
+2. **Enable APIs**
+   - Enable Google Docs API
+   - Enable Google Drive API
+
+3. **Create Credentials**
+   - Go to "Credentials" → "Create Credentials" → "OAuth 2.0 Client IDs"
+   - Choose "Desktop application"
+   - Download as `credentials.json` and place in project root
+
+4. **Update Configuration**
+   ```yaml
+   google_docs:
+     enabled: true
+     folder_name: "Transcription Summaries"
+   ```
+
+5. **First Run Authentication**
+   - Browser will open for OAuth consent
+   - Grant permissions to access Google Docs and Drive
+
+## File Structure
+
+```
+transcripts/
+├── audio/           # Temporary audio files (auto-deleted)
+├── transcripts/     # Daily transcript files
+│   └── 2024-01-15/
+│       ├── transcript_090000.txt
+│       └── transcript_143000.txt
+├── summaries/       # Generated summaries
+│   └── summary_2024-01-15.json
+└── config.yaml      # Application configuration
+```
 
 ## Privacy & Security
 
-- All audio processing happens locally on your device
-- Raw audio files are automatically cleaned up after transcription
-- Transcripts are stored locally before optional cloud sync
-- Pause/resume controls for sensitive conversations
-- Configurable keyword filtering for privacy
+- **Local Processing**: All audio transcription happens on your Mac
+- **Automatic Cleanup**: Raw audio files are deleted after transcription
+- **API Usage**: Only text summaries are sent to Claude (never audio)
+- **Data Control**: All transcripts stored locally before optional cloud sync
 
-## System Requirements
+## Troubleshooting
 
-- Python 3.9+
-- 4GB+ RAM (for Whisper models)
-- Microphone access
-- Internet connection (for AI summaries and Google Docs sync)
+### Installation Issues
 
-## Development
+**Python Version Problems:**
+```bash
+# Check Python version
+python3 --version
 
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed development roadmap and architecture.
+# Should be 3.9-3.12. If not, install correct version:
+brew install python@3.11
+```
+
+**PyTorch Installation Errors:**
+```bash
+# For Apple Silicon Macs
+pip install torch torchaudio
+
+# For Intel Macs
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+```
+
+**Permission Errors:**
+```bash
+# Install Xcode command line tools
+xcode-select --install
+
+# For Apple Silicon, set architecture
+export ARCHFLAGS="-arch arm64"
+pip install --no-cache-dir package_name
+```
+
+### Runtime Issues
+
+**No Audio Detected:**
+- Check microphone permissions in System Preferences
+- Verify microphone is working in other applications
+- Try adjusting `silence_threshold` in config.yaml
+
+**Transcription Errors:**
+- Use smaller model (`tiny` or `base`) if running out of memory
+- Check internet connection for model downloads
+- Verify audio files are being created in `transcripts/audio/`
+
+**Claude API Errors:**
+- Verify API key is correct in `.env` file
+- Check API usage limits at [console.anthropic.com](https://console.anthropic.com/)
+- Ensure sufficient credits in your Anthropic account
 
 ## License
 
-MIT License - see LICENSE file for details.
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+This means:
+- ✅ You can use, modify, and distribute this software
+- ✅ You can use it for commercial purposes
+- ⚠️ If you distribute modified versions, you must make the source code available
+- ⚠️ If you run a modified version as a web service, you must make the source code available to users
+
+See the [LICENSE](LICENSE) file for full details.
+
+## Support
+
+This is a personal project with limited support. For issues:
+
+1. Check this README for common solutions
+2. Review logs in `transcription_app.log`
+3. Test components individually using `python -m src.cli test`
+4. Search existing GitHub issues
+
+**Note**: Support is provided on a best-effort basis for macOS only.
