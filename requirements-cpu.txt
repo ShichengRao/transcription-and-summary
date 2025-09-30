@@ -10,8 +10,8 @@ scipy>=1.7.0
 faster-whisper>=0.9.0
 
 # PyTorch CPU-only (lighter installation)
-torch>=1.13.0,<2.1.0
-torchaudio>=0.13.0,<2.1.0
+torch>=2.0.0
+torchaudio>=2.0.0
 
 # Google API integration
 google-api-python-client>=2.50.0
