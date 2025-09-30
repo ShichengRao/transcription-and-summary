@@ -451,11 +451,42 @@ class TranscriptionApp(LoggerMixin):
     def force_daily_summary(self, target_date: Optional[date] = None) -> bool:
         """Force generation of daily summary for specified date."""
         if target_date is None:
-            target_date = date.today() - timedelta(days=1)
+            target_date = date.today()
         
         try:
-            self._generate_daily_summary()
-            return True
+            self.logger.info(f"Forcing daily summary generation for {target_date}")
+            
+            # Get daily transcript
+            daily_text = self._get_daily_transcript(target_date)
+            
+            if not daily_text.strip():
+                self.logger.info(f"No transcript data for {target_date}")
+                return False
+            
+            # Generate summary
+            summary = self.summarization_service.generate_daily_summary(daily_text, target_date)
+            
+            if not summary:
+                self.logger.error(f"Failed to generate summary for {target_date}")
+                return False
+            
+            # Save summary locally
+            summary_dir = self.config.get_storage_paths()['summaries']
+            summary_dir.mkdir(parents=True, exist_ok=True)
+            summary_file = summary_dir / f"summary_{target_date.strftime('%Y-%m-%d')}.json"
+            
+            if self.summarization_service.save_summary(summary, summary_file):
+                self.logger.info(f"Daily summary saved: {summary_file}")
+                
+                # Upload to Google Docs if enabled
+                if self.config.google_docs.enabled:
+                    self._upload_to_google_docs(target_date, daily_text, summary)
+                
+                return True
+            else:
+                self.logger.error(f"Failed to save summary to {summary_file}")
+                return False
+                
         except Exception as e:
             self.logger.error(f"Error forcing daily summary: {e}")
             return False

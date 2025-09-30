@@ -138,7 +138,8 @@ class SummarizationService(LoggerMixin):
         """Analyze transcript using OpenAI API."""
         if not self._openai_client:
             self.logger.error("OpenAI client not initialized")
-            return None
+            # Return a basic fallback analysis
+            return self._create_fallback_analysis(transcript_text)
         
         try:
             # Create analysis prompt
@@ -185,13 +186,15 @@ class SummarizationService(LoggerMixin):
                 
         except Exception as e:
             self.logger.error(f"Error calling OpenAI API: {e}")
-            return None
+            # Return fallback analysis instead of None
+            return self._create_fallback_analysis(transcript_text)
     
     def _analyze_with_claude(self, transcript_text: str) -> Optional[Dict[str, Any]]:
         """Analyze transcript using Claude API."""
         if not self._claude_client:
             self.logger.error("Claude client not initialized")
-            return None
+            # Return a basic fallback analysis
+            return self._create_fallback_analysis(transcript_text)
         
         try:
             # Create analysis prompt
@@ -234,7 +237,8 @@ class SummarizationService(LoggerMixin):
                 
         except Exception as e:
             self.logger.error(f"Error calling Claude API: {e}")
-            return None
+            # Return fallback analysis instead of None
+            return self._create_fallback_analysis(transcript_text)
     
     def _create_analysis_prompt(self, transcript_text: str) -> str:
         """Create a prompt for analyzing the transcript."""
@@ -476,3 +480,30 @@ Keep it concise but insightful.
         except Exception as e:
             self.logger.error(f"Error loading summary from {summary_path}: {e}")
             return None
+    
+    def _create_fallback_analysis(self, transcript_text: str) -> Dict[str, Any]:
+        """Create a basic analysis when AI services are not available."""
+        words = transcript_text.split()
+        sentences = transcript_text.split('.')
+        
+        # Extract some basic keywords (simple approach)
+        common_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'}
+        
+        word_freq = {}
+        for word in words:
+            clean_word = word.lower().strip('.,!?;:"()[]{}')
+            if len(clean_word) > 3 and clean_word not in common_words:
+                word_freq[clean_word] = word_freq.get(clean_word, 0) + 1
+        
+        # Get top keywords
+        key_topics = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:5]
+        key_topics = [word for word, count in key_topics]
+        
+        return {
+            'summary': f"Daily transcript containing {len(words)} words across {len(sentences)} sentences. Key topics discussed include: {', '.join(key_topics[:3])}.",
+            'key_topics': key_topics,
+            'action_items': [],
+            'meetings': [],
+            'sentiment': 'neutral',
+            'estimated_duration': len(words) * 0.5 / 60  # Rough estimate: 0.5 seconds per word
+        }
