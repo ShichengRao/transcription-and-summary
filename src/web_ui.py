@@ -195,9 +195,52 @@ class WebUI(LoggerMixin):
     def _force_upload_docs(self) -> None:
         """Force upload recent summaries to Google Docs."""
         try:
-            # This would trigger upload of recent summaries
-            # For now, just log the action
             self.logger.info("Google Docs upload triggered manually")
+            
+            if not self.app_instance.config.google_docs.enabled:
+                self.logger.warning("Google Docs integration is disabled")
+                return
+            
+            # Try to upload recent summaries
+            summary_dir = self.app_instance.config.get_storage_paths()['summaries']
+            if not summary_dir.exists():
+                self.logger.warning("No summaries directory found")
+                return
+            
+            # Find recent summary files
+            summary_files = list(summary_dir.glob("summary_*.json"))
+            if not summary_files:
+                self.logger.warning("No summary files found to upload")
+                return
+            
+            # Upload the most recent summaries
+            uploaded_count = 0
+            for summary_file in sorted(summary_files)[-5:]:  # Last 5 summaries
+                try:
+                    # Load summary
+                    with open(summary_file, 'r') as f:
+                        summary_data = json.loads(f.read())
+                    
+                    # Extract date from filename
+                    date_str = summary_file.stem.replace('summary_', '')
+                    target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    
+                    # Get transcript text
+                    daily_text = self.app_instance._get_daily_transcript(target_date)
+                    
+                    # Create DailySummary object
+                    from .summarization import DailySummary
+                    summary = DailySummary(**summary_data)
+                    
+                    # Upload to Google Docs
+                    self.app_instance._upload_to_google_docs(target_date, daily_text, summary)
+                    uploaded_count += 1
+                    
+                except Exception as e:
+                    self.logger.error(f"Error uploading {summary_file}: {e}")
+            
+            self.logger.info(f"Uploaded {uploaded_count} summaries to Google Docs")
+            
         except Exception as e:
             self.logger.error(f"Error forcing Google Docs upload: {e}")
     
