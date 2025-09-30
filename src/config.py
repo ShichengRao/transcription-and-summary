@@ -71,7 +71,8 @@ class UIConfig:
     system_tray: bool = True
     auto_start: bool = True
     notifications: bool = True
-    web_dashboard: bool = False
+    web_dashboard: bool = True
+    web_host: str = "127.0.0.1"
     web_port: int = 8080
 
 

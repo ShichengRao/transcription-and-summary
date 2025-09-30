@@ -14,6 +14,7 @@ from .audio_capture import AudioCapture, AudioSegment
 from .transcription import TranscriptionService, TranscriptionResult
 from .summarization import SummarizationService, DailySummary
 from .google_docs import GoogleDocsService
+from .web_ui import WebUI
 
 
 class TranscriptionApp(LoggerMixin):
@@ -36,6 +37,7 @@ class TranscriptionApp(LoggerMixin):
         self._running = False
         self._paused = False
         self._scheduler: Optional[BackgroundScheduler] = None
+        self._web_ui: Optional[WebUI] = None
         
         # Daily transcript accumulation
         self._daily_transcripts: Dict[date, List[str]] = {}
@@ -80,6 +82,12 @@ class TranscriptionApp(LoggerMixin):
             # Setup scheduler for daily tasks
             self._setup_scheduler()
             
+            # Start web UI if enabled
+            if self.config.ui.web_dashboard:
+                self._web_ui = WebUI(self, self.config.ui.web_host, self.config.ui.web_port)
+                self._web_ui.start()
+                self.logger.info(f"Web dashboard available at http://{self.config.ui.web_host}:{self.config.ui.web_port}")
+            
             self._running = True
             self._notify_status("Recording and transcribing...")
             
@@ -107,6 +115,11 @@ class TranscriptionApp(LoggerMixin):
         if self._scheduler:
             self._scheduler.shutdown()
             self._scheduler = None
+        
+        # Stop web UI
+        if self._web_ui:
+            self._web_ui.stop()
+            self._web_ui = None
         
         # Process any remaining transcripts
         self._process_remaining_transcripts()

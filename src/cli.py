@@ -144,6 +144,54 @@ def cmd_generate_summary(target_date: str = None):
         return 1
 
 
+def cmd_process_audio():
+    """Process any pending audio files."""
+    config = AppConfig.load()
+    load_environment_variables()
+    logger = setup_logger(level="INFO")
+    
+    print("Processing pending audio files...")
+    
+    # Look for audio files in the audio directory
+    audio_dir = config.get_storage_paths()['audio']
+    if not audio_dir.exists():
+        print("❌ No audio directory found")
+        return 1
+    
+    audio_files = list(audio_dir.glob("*.wav"))
+    if not audio_files:
+        print("✅ No pending audio files to process")
+        return 0
+    
+    print(f"Found {len(audio_files)} audio files to process")
+    
+    # Initialize transcription service
+    from .transcription import TranscriptionService
+    transcription_service = TranscriptionService(config.transcription)
+    
+    if not transcription_service.start_processing():
+        print("❌ Failed to start transcription service")
+        return 1
+    
+    # Process each file
+    processed = 0
+    for audio_file in audio_files:
+        print(f"Processing: {audio_file.name}")
+        result = transcription_service.transcribe_file(audio_file)
+        
+        if result:
+            print(f"✅ Transcribed: {result.text[:100]}...")
+            # Clean up the audio file
+            audio_file.unlink()
+            processed += 1
+        else:
+            print(f"❌ Failed to transcribe: {audio_file.name}")
+    
+    transcription_service.stop_processing()
+    print(f"✅ Processed {processed}/{len(audio_files)} audio files")
+    return 0
+
+
 def cmd_run():
     """Run the main application."""
     from .main import main
@@ -209,6 +257,9 @@ def main():
     summary_cmd_parser = subparsers.add_parser('generate-summary', help='Generate summary for a date')
     summary_cmd_parser.add_argument('--date', help='Date in YYYY-MM-DD format (default: yesterday)')
     
+    # Process audio command
+    subparsers.add_parser('process-audio', help='Process any pending audio files')
+    
     # Status command
     subparsers.add_parser('status', help='Show application status')
     
@@ -235,6 +286,8 @@ def main():
                 return 1
         elif args.command == 'generate-summary':
             return cmd_generate_summary(args.date)
+        elif args.command == 'process-audio':
+            return cmd_process_audio()
         elif args.command == 'status':
             return cmd_status()
         else:

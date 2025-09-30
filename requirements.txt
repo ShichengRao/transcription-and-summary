@@ -27,6 +27,9 @@ Pillow>=8.0.0
 # Logging and monitoring
 rich>=12.0.0
 
+# Web UI
+flask>=2.3.0
+
 # Development dependencies
 pytest>=6.0.0
 black>=22.0.0
