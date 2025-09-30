@@ -196,7 +196,7 @@ class TranscriptionApp(LoggerMixin):
     
     def _on_audio_segment(self, segment: AudioSegment) -> None:
         """Handle completed audio segment."""
-        self.logger.debug(f"Audio segment completed: {segment.file_path.name}")
+        self.logger.info(f"Audio segment completed: {segment.file_path.name} ({segment.duration:.1f}s)")
         
         # Queue for transcription
         self.transcription_service.queue_audio_segment(segment)

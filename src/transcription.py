@@ -177,6 +177,11 @@ class TranscriptionService(LoggerMixin):
     
     def queue_audio_segment(self, segment: AudioSegment) -> None:
         """Add an audio segment to the transcription queue."""
+        # Check if file exists before queuing
+        if not segment.file_path.exists():
+            self.logger.warning(f"Audio file does not exist, skipping: {segment.file_path}")
+            return
+        
         self._transcription_queue.put(segment)
         self.logger.debug(f"Audio segment queued for transcription: {segment.file_path.name}")
     
@@ -309,7 +314,7 @@ class TranscriptionService(LoggerMixin):
     def _transcribe_segment(self, segment: AudioSegment) -> Optional[TranscriptionResult]:
         """Transcribe a single audio segment."""
         if not segment.file_path.exists():
-            self.logger.warning(f"Audio file not found: {segment.file_path}")
+            self.logger.debug(f"Audio file not found (may have been cleaned up): {segment.file_path}")
             return None
         
         try:
