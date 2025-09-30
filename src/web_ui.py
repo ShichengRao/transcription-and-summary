@@ -90,8 +90,11 @@ class WebUI(LoggerMixin):
     def _heartbeat_loop(self) -> None:
         """Update heartbeat every minute."""
         while self.running:
-            if self.app_instance.is_recording():
-                self.last_heartbeat = datetime.now()
+            try:
+                if hasattr(self.app_instance, 'is_recording') and self.app_instance.is_recording():
+                    self.last_heartbeat = datetime.now()
+            except Exception as e:
+                self.logger.error(f"Error in heartbeat loop: {e}")
             time.sleep(60)  # Update every minute
     
     def _setup_routes(self) -> None:
