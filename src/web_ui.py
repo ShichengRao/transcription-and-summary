@@ -156,6 +156,20 @@ class WebUI(LoggerMixin):
                     self._force_upload_docs()
                     return jsonify({'success': True, 'message': 'Google Docs upload triggered'})
                 
+                elif action == 'generate_daily_transcript':
+                    # Generate daily consolidated transcript
+                    target_date = request.json.get('date') if request.json else None
+                    if target_date:
+                        target_date = datetime.fromisoformat(target_date).date()
+                    else:
+                        target_date = date.today()
+                    
+                    success = self.app_instance.generate_daily_transcript_file(target_date)
+                    if success:
+                        return jsonify({'success': True, 'message': f'Daily transcript generated for {target_date}'})
+                    else:
+                        return jsonify({'success': False, 'message': 'Daily transcript generation failed'})
+                
                 else:
                     return jsonify({'success': False, 'message': f'Unknown action: {action}'})
                     
@@ -230,6 +244,12 @@ class WebUI(LoggerMixin):
                     
                     # Create DailySummary object
                     from .summarization import DailySummary
+                    from datetime import datetime
+                    
+                    # Convert string dates back to proper objects
+                    summary_data['date'] = datetime.fromisoformat(summary_data['date']).date()
+                    summary_data['created_at'] = datetime.fromisoformat(summary_data['created_at'])
+                    
                     summary = DailySummary(**summary_data)
                     
                     # Upload to Google Docs
@@ -410,6 +430,7 @@ class WebUI(LoggerMixin):
             <button class="btn btn-success" onclick="resumeRecording()">▶️ Resume Recording</button>
             <button class="btn btn-primary" onclick="forceTranscribe()">🔄 Process Audio Now</button>
             <button class="btn btn-primary" onclick="forceSummary()">📝 Generate Summary</button>
+            <button class="btn btn-primary" onclick="generateDailyTranscript()">📋 Generate Daily Transcript</button>
             <button class="btn btn-primary" onclick="uploadDocs()">☁️ Upload to Google Docs</button>
         </div>
         
@@ -523,6 +544,11 @@ class WebUI(LoggerMixin):
         function forceSummary() {
             const today = new Date().toISOString().split('T')[0];
             controlAction('force_summary', { date: today });
+        }
+        
+        function generateDailyTranscript() {
+            const today = new Date().toISOString().split('T')[0];
+            controlAction('generate_daily_transcript', { date: today });
         }
         
         function uploadDocs() {

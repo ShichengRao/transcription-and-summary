@@ -216,6 +216,9 @@ class TranscriptionApp(LoggerMixin):
         # Save individual transcript
         self._save_transcript(result)
         
+        # Update daily consolidated transcript
+        self._update_daily_transcript_file(result)
+        
         # Cleanup audio file
         self._cleanup_audio_file(result.audio_segment.file_path)
     
@@ -258,6 +261,98 @@ class TranscriptionApp(LoggerMixin):
             
         except Exception as e:
             self.logger.error(f"Error saving transcript: {e}")
+    
+    def _update_daily_transcript_file(self, result: TranscriptionResult) -> None:
+        """Update the daily consolidated transcript file."""
+        try:
+            transcript_date = result.timestamp.date()
+            transcript_dir = self.config.get_storage_paths()['transcripts']
+            
+            # Create date-specific directory
+            date_dir = transcript_dir / transcript_date.strftime('%Y-%m-%d')
+            date_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Daily consolidated transcript file
+            daily_file = date_dir / f"daily_transcript_{transcript_date.strftime('%Y-%m-%d')}.txt"
+            
+            # Format the transcript entry
+            timestamp_str = result.timestamp.strftime('%H:%M:%S')
+            transcript_entry = f"[{timestamp_str}] {result.text}"
+            
+            # Append to daily file (create if doesn't exist)
+            with open(daily_file, 'a', encoding='utf-8') as f:
+                if daily_file.stat().st_size == 0:  # New file, add header
+                    f.write(f"Daily Transcript - {transcript_date.strftime('%Y-%m-%d')}\\n")
+                    f.write("=" * 50 + "\\n\\n")
+                
+                f.write(f"{transcript_entry}\\n\\n")
+            
+            self.logger.debug(f"Updated daily transcript file: {daily_file.name}")
+            
+        except Exception as e:
+            self.logger.error(f"Error updating daily transcript file: {e}")
+    
+    def generate_daily_transcript_file(self, target_date: date) -> bool:
+        """Generate consolidated daily transcript file from individual transcripts."""
+        try:
+            transcript_dir = self.config.get_storage_paths()['transcripts']
+            date_dir = transcript_dir / target_date.strftime('%Y-%m-%d')
+            
+            if not date_dir.exists():
+                self.logger.warning(f"No transcript directory for {target_date}")
+                return False
+            
+            # Find all individual transcript files
+            transcript_files = sorted(date_dir.glob("transcript_*.txt"))
+            
+            if not transcript_files:
+                self.logger.warning(f"No individual transcript files found for {target_date}")
+                return False
+            
+            # Daily consolidated transcript file
+            daily_file = date_dir / f"daily_transcript_{target_date.strftime('%Y-%m-%d')}.txt"
+            
+            # Create consolidated file
+            with open(daily_file, 'w', encoding='utf-8') as daily_f:
+                daily_f.write(f"Daily Transcript - {target_date.strftime('%Y-%m-%d')}\\n")
+                daily_f.write("=" * 50 + "\\n\\n")
+                
+                for transcript_file in transcript_files:
+                    try:
+                        with open(transcript_file, 'r', encoding='utf-8') as f:
+                            lines = f.readlines()
+                        
+                        # Extract timestamp and text from individual file
+                        timestamp_line = None
+                        text_started = False
+                        text_lines = []
+                        
+                        for line in lines:
+                            if line.startswith("Timestamp: "):
+                                timestamp_str = line.split("Timestamp: ")[1].strip()
+                                # Convert to HH:MM:SS format
+                                from datetime import datetime
+                                timestamp = datetime.fromisoformat(timestamp_str)
+                                timestamp_line = timestamp.strftime('%H:%M:%S')
+                            elif line.strip() == "-" * 50:
+                                text_started = True
+                            elif text_started:
+                                text_lines.append(line.rstrip())
+                        
+                        if timestamp_line and text_lines:
+                            text = " ".join(text_lines).strip()
+                            daily_f.write(f"[{timestamp_line}] {text}\\n\\n")
+                    
+                    except Exception as e:
+                        self.logger.error(f"Error processing {transcript_file}: {e}")
+                        continue
+            
+            self.logger.info(f"Generated daily transcript file: {daily_file}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error generating daily transcript file for {target_date}: {e}")
+            return False
     
     def _cleanup_audio_file(self, audio_path: Path) -> None:
         """Clean up processed audio file."""
