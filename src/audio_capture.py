@@ -85,7 +85,27 @@ class AudioCapture(LoggerMixin):
         # Save any remaining audio in buffer
         self._save_current_buffer()
         
+        # Clean up resources
+        self._cleanup_resources()
+        
         self.logger.info("Audio recording stopped")
+    
+    def _cleanup_resources(self) -> None:
+        """Clean up audio resources."""
+        try:
+            # Clear buffers
+            with self._buffer_lock:
+                self._audio_buffer.clear()
+            
+            # Clear queue
+            while not self._segment_queue.empty():
+                try:
+                    self._segment_queue.get_nowait()
+                except:
+                    break
+            
+        except Exception as e:
+            self.logger.error(f"Error cleaning up audio resources: {e}")
     
     def pause_recording(self) -> None:
         """Pause recording (keeps thread alive but stops capturing)."""
