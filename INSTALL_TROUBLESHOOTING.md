@@ -2,6 +2,24 @@
 
 ## Quick Fixes for Common Issues
 
+### 0. PyTorch Won't Install At All (Your Issue)
+
+**Error:** `Could not find a version that satisfies the requirement torch (from versions: none)`
+
+**Quick Solution:**
+```bash
+# Skip PyTorch entirely - use cloud transcription
+python quick_fix_macos.py
+
+# Or full PyTorch-free installation
+python install_no_torch.py
+
+# Test it works
+python test_no_torch.py
+```
+
+This bypasses PyTorch completely and uses OpenAI's Whisper API for transcription.
+
 ### 1. PyTorch Installation Issues
 
 **Error:** `Could not find a version that satisfies the requirement torch>=2.0.0`
@@ -42,17 +60,31 @@ python install.py
 
 ### 2. Python Version Issues
 
-**Error:** `Requires-Python >=3.8,<3.12`
+**Error:** `Requires-Python >=3.8,<3.12` or PyTorch installation fails
 
 **Check your Python version:**
 ```bash
 python --version
 ```
 
-**Solutions:**
-- **Python 3.7 or older:** Upgrade to Python 3.8+
-- **Python 3.12+:** Use `requirements-minimal.txt` or `requirements-cpu.txt`
-- **Python 3.8-3.11:** Use standard `requirements.txt`
+**Solutions by Python version:**
+- **Python 3.7 or older:** Upgrade to Python 3.9+
+- **Python 3.13+:** ⚠️ **Downgrade to Python 3.12** (PyTorch not compatible yet)
+- **Python 3.9-3.12:** Should work with standard installation
+
+**How to downgrade from Python 3.13:**
+```bash
+# Using pyenv (recommended)
+pyenv install 3.12.0
+pyenv local 3.12.0
+
+# Using conda
+conda create -n transcription python=3.12
+conda activate transcription
+
+# Using Homebrew (macOS)
+brew install python@3.12
+```
 
 ### 3. Platform-Specific Issues
 
@@ -129,6 +161,13 @@ pip install faster-whisper
 ```
 
 ## Installation Options Explained
+
+### Option 0: PyTorch-Free (`requirements-no-torch.txt`)
+- **Best for:** Systems that can't install PyTorch (your situation)
+- **Includes:** AI summarization, cloud transcription via OpenAI API
+- **Size:** ~50MB download
+- **Transcription:** Uses OpenAI Whisper API (requires API key)
+- **Install:** `python install_no_torch.py`
 
 ### Option 1: Full Installation (`requirements.txt`)
 - **Best for:** Python 3.8-3.11, good internet, powerful machine

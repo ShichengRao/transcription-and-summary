@@ -3,7 +3,7 @@
 ## Prerequisites
 
 ### System Requirements
-- Python 3.9 or higher
+- **Python 3.9-3.12** (⚠️ Python 3.13+ not yet supported by PyTorch)
 - 4GB+ RAM (for Whisper models)
 - Microphone access
 - Internet connection (for AI summaries and Google Docs sync)
@@ -56,13 +56,25 @@ pip install --upgrade pip
 
 ### 3. Install Dependencies
 
-#### Option 1: Smart Installer (Recommended)
+#### Option 1: Quick Fix for PyTorch Issues (Recommended for your case)
+```bash
+python quick_fix_macos.py
+```
+Bypasses PyTorch entirely and uses cloud-based transcription.
+
+#### Option 2: Smart Installer
 ```bash
 python install.py
 ```
 The smart installer will detect your system and choose the best installation method.
 
-#### Option 2: Manual Installation
+#### Option 3: PyTorch-Free Installation
+```bash
+pip install -r requirements-no-torch.txt
+```
+Uses cloud-based transcription instead of local processing.
+
+#### Option 4: Manual Installation
 
 **Full Installation (if you have compatible Python 3.8-3.11):**
 ```bash

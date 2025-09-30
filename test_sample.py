@@ -68,17 +68,25 @@ def test_transcription_model():
         from src.transcription import TranscriptionService
         from src.config import TranscriptionConfig
         
-        config = TranscriptionConfig(model_size="tiny")  # Use smallest model for testing
+        # Use float32 for better compatibility
+        config = TranscriptionConfig(
+            model_size="tiny",  # Use smallest model for testing
+            compute_type="float32"  # Better compatibility than float16
+        )
         service = TranscriptionService(config)
         
         if service.initialize_model():
-            print("✅ Transcription model loaded successfully")
+            backend = getattr(service, '_backend', 'unknown')
+            print(f"✅ Transcription model loaded successfully (backend: {backend})")
             return True
         else:
             print("❌ Failed to load transcription model")
+            print("Try: python fix_numpy.py")
             return False
     except Exception as e:
         print(f"❌ Transcription model test failed: {e}")
+        if "numpy" in str(e).lower():
+            print("💡 NumPy compatibility issue detected. Try: python fix_numpy.py")
         return False
 
 
