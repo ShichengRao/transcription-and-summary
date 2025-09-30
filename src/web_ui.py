@@ -14,6 +14,13 @@ except ImportError:
     FLASK_AVAILABLE = False
     Flask = None
 
+try:
+    from waitress import serve
+    WAITRESS_AVAILABLE = True
+except ImportError:
+    WAITRESS_AVAILABLE = False
+    serve = None
+
 from .logger import LoggerMixin
 
 
@@ -60,18 +67,34 @@ class WebUI(LoggerMixin):
             self.heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
             self.heartbeat_thread.start()
             
-            # Start Flask in a separate thread
-            flask_thread = threading.Thread(
-                target=lambda: self.flask_app.run(
-                    host=self.host, 
-                    port=self.port, 
-                    debug=False, 
-                    use_reloader=False,
-                    threaded=True
-                ),
-                daemon=True
-            )
-            flask_thread.start()
+            # Start web server in a separate thread
+            if WAITRESS_AVAILABLE:
+                # Use production WSGI server
+                server_thread = threading.Thread(
+                    target=lambda: serve(
+                        self.flask_app,
+                        host=self.host,
+                        port=self.port,
+                        threads=4
+                    ),
+                    daemon=True
+                )
+                self.logger.info(f"Starting production web server on {self.host}:{self.port}")
+            else:
+                # Fallback to Flask development server
+                server_thread = threading.Thread(
+                    target=lambda: self.flask_app.run(
+                        host=self.host, 
+                        port=self.port, 
+                        debug=False, 
+                        use_reloader=False,
+                        threaded=True
+                    ),
+                    daemon=True
+                )
+                self.logger.warning("Using Flask development server (install waitress for production)")
+            
+            server_thread.start()
             
             # Give Flask a moment to start
             time.sleep(1)
@@ -193,6 +216,33 @@ class WebUI(LoggerMixin):
                     return jsonify({'logs': ['No log file found']})
             except Exception as e:
                 return jsonify({'logs': [f'Error reading logs: {e}']})
+        
+        @self.flask_app.route('/api/upload', methods=['POST'])
+        def api_upload():
+            \"\"\"Handle audio file uploads.\"\"\"
+            try:
+                if 'audio_file' not in request.files:
+                    return jsonify({'success': False, 'message': 'No audio file provided'})
+                
+                file = request.files['audio_file']
+                if file.filename == '':
+                    return jsonify({'success': False, 'message': 'No file selected'})
+                
+                # Process the uploaded file
+                result = self._process_uploaded_audio(file)
+                
+                if result['success']:
+                    return jsonify({
+                        'success': True, 
+                        'message': f\"Audio file processed successfully: {result['transcript_preview']}\",
+                        'transcript_length': result['transcript_length']
+                    })
+                else:
+                    return jsonify({'success': False, 'message': result['error']})
+                    
+            except Exception as e:
+                self.logger.error(f\"Error processing uploaded file: {e}\")
+                return jsonify({'success': False, 'message': str(e)})
     
     def _force_transcribe(self) -> None:
         """Force transcription of any pending audio."""
@@ -244,7 +294,6 @@ class WebUI(LoggerMixin):
                     
                     # Create DailySummary object
                     from .summarization import DailySummary
-                    from datetime import datetime
                     
                     # Convert string dates back to proper objects
                     summary_data['date'] = datetime.fromisoformat(summary_data['date']).date()
@@ -367,8 +416,39 @@ class WebUI(LoggerMixin):
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
         .btn-primary { background: #007bff; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
         .btn-success { background: #28a745; color: white; }
         .btn-warning { background: #ffc107; color: black; }
+        
+        .upload-section {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin: 10px 0;
+        }
+        
+        .upload-section:hover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+        
+        .upload-info {
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 10px;
+            text-align: left;
+        }
+        
+        #audioFileInput {
+            margin: 10px 0;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 100%;
+            max-width: 400px;
+        }
         .btn-danger { background: #dc3545; color: white; }
         .logs {
             background: #1e1e1e;
@@ -432,6 +512,24 @@ class WebUI(LoggerMixin):
             <button class="btn btn-primary" onclick="forceSummary()">📝 Generate Summary</button>
             <button class="btn btn-primary" onclick="generateDailyTranscript()">📋 Generate Daily Transcript</button>
             <button class="btn btn-primary" onclick="uploadDocs()">☁️ Upload to Google Docs</button>
+        </div>
+        
+        <div class="card">
+            <h3>📁 Import Audio Files</h3>
+            <p>Upload audio recordings from your phone or other devices</p>
+            <div class="upload-section">
+                <input type="file" id="audioFileInput" accept=".wav,.mp3,.m4a,.mp4,.flac,.ogg,.webm" multiple style="margin-bottom: 10px;">
+                <br>
+                <button class="btn btn-secondary" onclick="uploadAudioFiles()">🎤 Upload Audio Files</button>
+                <div id="uploadStatus" style="margin-top: 10px;"></div>
+            </div>
+            <div class="upload-info">
+                <small>
+                    <strong>Supported formats:</strong> WAV, MP3, M4A, MP4, FLAC, OGG, WebM<br>
+                    <strong>Filename parsing:</strong> Dates/times will be extracted from filenames when possible<br>
+                    <strong>Examples:</strong> "Recording 2024-09-30 14:30.m4a", "20240930_143015.wav"
+                </small>
+            </div>
         </div>
         
         <div>
@@ -555,6 +653,58 @@ class WebUI(LoggerMixin):
             controlAction('upload_docs');
         }
         
+        function uploadAudioFiles() {
+            const fileInput = document.getElementById('audioFileInput');
+            const statusDiv = document.getElementById('uploadStatus');
+            
+            if (fileInput.files.length === 0) {
+                statusDiv.innerHTML = '<span style="color: red;">Please select audio files to upload</span>';
+                return;
+            }
+            
+            statusDiv.innerHTML = '<span style="color: blue;">Uploading files...</span>';
+            
+            // Upload files one by one
+            uploadFileSequentially(fileInput.files, 0, statusDiv);
+        }
+        
+        function uploadFileSequentially(files, index, statusDiv) {
+            if (index >= files.length) {
+                statusDiv.innerHTML = '<span style="color: green;">✅ All files uploaded successfully!</span>';
+                // Clear the file input
+                document.getElementById('audioFileInput').value = '';
+                return;
+            }
+            
+            const file = files[index];
+            const formData = new FormData();
+            formData.append('audio_file', file);
+            
+            statusDiv.innerHTML = `<span style="color: blue;">Uploading ${file.name} (${index + 1}/${files.length})...</span>`;
+            
+            fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    statusDiv.innerHTML = `<span style="color: green;">✅ ${file.name}: ${data.message}</span>`;
+                    // Continue with next file after a short delay
+                    setTimeout(() => uploadFileSequentially(files, index + 1, statusDiv), 1000);
+                } else {
+                    statusDiv.innerHTML = `<span style="color: red;">❌ ${file.name}: ${data.message}</span>`;
+                    // Continue with next file even if this one failed
+                    setTimeout(() => uploadFileSequentially(files, index + 1, statusDiv), 2000);
+                }
+            })
+            .catch(error => {
+                statusDiv.innerHTML = `<span style="color: red;">❌ ${file.name}: Upload failed - ${error}</span>`;
+                // Continue with next file even if this one failed
+                setTimeout(() => uploadFileSequentially(files, index + 1, statusDiv), 2000);
+            });
+        }
+        
         // Start updating status and logs
         updateStatus();
         updateLogs();
@@ -564,3 +714,194 @@ class WebUI(LoggerMixin):
 </body>
 </html>
         '''
+    
+    def _process_uploaded_audio(self, file) -> Dict[str, Any]:
+        \"\"\"Process an uploaded audio file.\"\"\"
+        try:
+            import tempfile
+            import os
+            from datetime import datetime
+            from pathlib import Path
+            
+            # Validate file type
+            allowed_extensions = {'.wav', '.mp3', '.m4a', '.mp4', '.flac', '.ogg', '.webm'}
+            file_ext = Path(file.filename).suffix.lower()
+            
+            if file_ext not in allowed_extensions:
+                return {
+                    'success': False,
+                    'error': f'Unsupported file type: {file_ext}. Supported: {", ".join(allowed_extensions)}'
+                }
+            
+            # Extract date/time from filename or use current time
+            timestamp = self._extract_timestamp_from_filename(file.filename)
+            
+            # Save uploaded file temporarily
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
+                file.save(temp_file.name)
+                temp_path = Path(temp_file.name)
+            
+            try:
+                # Convert to WAV if needed and create AudioSegment
+                audio_segment = self._create_audio_segment_from_file(temp_path, timestamp)
+                
+                if not audio_segment:
+                    return {'success': False, 'error': 'Failed to process audio file'}
+                
+                # Queue for transcription
+                self.app_instance.transcription_service.queue_audio_segment(audio_segment)
+                
+                # Get file info for response
+                file_size = temp_path.stat().st_size
+                duration_estimate = file_size / 32000  # Rough estimate
+                
+                return {
+                    'success': True,
+                    'transcript_preview': f'Queued for transcription ({duration_estimate:.1f}s estimated)',
+                    'transcript_length': 0,
+                    'timestamp': timestamp.isoformat(),
+                    'filename': file.filename
+                }
+                
+            finally:
+                # Clean up temporary file
+                if temp_path.exists():
+                    temp_path.unlink()
+                    
+        except Exception as e:
+            self.logger.error(f\"Error processing uploaded audio: {e}\")
+            return {'success': False, 'error': str(e)}
+    
+    def _extract_timestamp_from_filename(self, filename: str) -> datetime:
+        \"\"\"Extract timestamp from filename or return current time.\"\"\"
+        import re
+        from datetime import datetime
+        
+        # Try various filename patterns
+        patterns = [
+            # Voice memos: \"Recording 2024-09-30 14:30:15.m4a\"
+            r'(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2}):(\d{2})',
+            # Voice memos: \"Recording 2024-09-30 14:30.m4a\"
+            r'(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})',
+            # Date only: \"2024-09-30.wav\"
+            r'(\d{4}-\d{2}-\d{2})',
+            # Timestamp: \"20240930_143015.wav\"
+            r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})',
+            # Timestamp: \"20240930_1430.wav\"
+            r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, filename)
+            if match:
+                groups = match.groups()
+                try:
+                    if len(groups) == 4:  # Date + hour:minute
+                        date_str, hour, minute = groups[0], groups[1], groups[2]
+                        return datetime.strptime(f\"{date_str} {hour}:{minute}:00\", \"%Y-%m-%d %H:%M:%S\")
+                    elif len(groups) == 5:  # Date + hour:minute:second
+                        date_str, hour, minute, second = groups[0], groups[1], groups[2], groups[3]
+                        return datetime.strptime(f\"{date_str} {hour}:{minute}:{second}\", \"%Y-%m-%d %H:%M:%S\")
+                    elif len(groups) == 1:  # Date only
+                        date_str = groups[0]
+                        return datetime.strptime(f\"{date_str} 12:00:00\", \"%Y-%m-%d %H:%M:%S\")
+                    elif len(groups) == 6:  # YYYYMMDD_HHMMSS
+                        year, month, day, hour, minute, second = groups
+                        return datetime.strptime(f\"{year}-{month}-{day} {hour}:{minute}:{second}\", \"%Y-%m-%d %H:%M:%S\")
+                    elif len(groups) == 5:  # YYYYMMDD_HHMM
+                        year, month, day, hour, minute = groups
+                        return datetime.strptime(f\"{year}-{month}-{day} {hour}:{minute}:00\", \"%Y-%m-%d %H:%M:%S\")
+                except ValueError:
+                    continue
+        
+        # If no pattern matches, use current time
+        self.logger.info(f\"Could not extract timestamp from filename '{filename}', using current time\")
+        return datetime.now()
+    
+    def _create_audio_segment_from_file(self, file_path: Path, timestamp: datetime) -> Optional['AudioSegment']:
+        \"\"\"Create an AudioSegment from an uploaded file.\"\"\"
+        try:
+            from .audio_capture import AudioSegment
+            import subprocess
+            import tempfile
+            
+            # Convert to WAV format if needed
+            if file_path.suffix.lower() != '.wav':
+                # Use ffmpeg to convert to WAV
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as wav_file:
+                    wav_path = Path(wav_file.name)
+                
+                # Convert using ffmpeg
+                cmd = [
+                    'ffmpeg', '-i', str(file_path),
+                    '-ar', '16000',  # 16kHz sample rate
+                    '-ac', '1',      # Mono
+                    '-y',            # Overwrite output
+                    str(wav_path)
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    self.logger.error(f\"FFmpeg conversion failed: {result.stderr}\")
+                    return None
+                
+                source_path = wav_path
+            else:
+                source_path = file_path
+            
+            # Get audio duration
+            duration = self._get_audio_duration(source_path)
+            
+            # Move to audio directory
+            audio_dir = self.app_instance.config.get_storage_paths()['audio']
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate filename
+            filename = f\"uploaded_{timestamp.strftime('%Y%m%d_%H%M%S')}.wav\"
+            final_path = audio_dir / filename
+            
+            # Move file to audio directory
+            import shutil
+            shutil.move(str(source_path), str(final_path))
+            
+            # Create AudioSegment
+            audio_segment = AudioSegment(
+                file_path=final_path,
+                start_time=timestamp,
+                end_time=timestamp,  # Will be updated after processing
+                duration=duration,
+                sample_rate=16000
+            )
+            
+            self.logger.info(f\"Created audio segment from uploaded file: {filename} ({duration:.1f}s)\")
+            return audio_segment
+            
+        except Exception as e:
+            self.logger.error(f\"Error creating audio segment from file: {e}\")
+            return None
+    
+    def _get_audio_duration(self, file_path: Path) -> float:
+        \"\"\"Get audio file duration in seconds.\"\"\"
+        try:
+            import subprocess
+            
+            cmd = [
+                'ffprobe', '-v', 'quiet',
+                '-show_entries', 'format=duration',
+                '-of', 'csv=p=0',
+                str(file_path)
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                return float(result.stdout.strip())
+            else:
+                # Fallback: estimate from file size
+                file_size = file_path.stat().st_size
+                return file_size / 32000  # Rough estimate for 16kHz mono
+                
+        except Exception as e:
+            self.logger.error(f\"Error getting audio duration: {e}\")
+            # Fallback: estimate from file size
+            file_size = file_path.stat().st_size
+            return file_size / 32000
