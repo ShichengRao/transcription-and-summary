@@ -67,12 +67,18 @@ def main():
         print(f"Error loading configuration: {e}")
         return 1
     
-    # Setup logging
+    # Setup logging with file output
+    log_dir = config.get_storage_paths()['base'] / 'logs'
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / 'transcription_app.log'
+    
     logger = setup_logger(
         level=config.log_level,
-        log_file="transcription_app.log" if config.debug else None,
+        log_file=str(log_file),
         console_output=True
     )
+    
+    logger.info(f"Logging to file: {log_file}")
     
     logger.info("Starting Transcription and Summary Application")
     

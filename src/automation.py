@@ -198,6 +198,7 @@ class TranscriptionApp(LoggerMixin):
     def _on_audio_segment(self, segment: AudioSegment) -> None:
         """Handle completed audio segment."""
         self.logger.info(f"Audio segment completed: {segment.file_path.name} ({segment.duration:.1f}s)")
+        self.logger.debug(f"Audio segment details: start={segment.start_time}, end={segment.end_time}, sample_rate={segment.sample_rate}")
         
         # Queue for transcription
         self.transcription_service.queue_audio_segment(segment)
@@ -537,14 +538,30 @@ class TranscriptionApp(LoggerMixin):
         """Get current application status."""
         transcription_stats = self.transcription_service.get_statistics()
         
+        # Get audio configuration for debugging
+        audio_config = {
+            'silence_threshold': self.config.audio.silence_threshold,
+            'silence_duration': self.config.audio.silence_duration,
+            'min_audio_duration': getattr(self.config.audio, 'min_audio_duration', 'N/A'),
+            'noise_gate_threshold': getattr(self.config.audio, 'noise_gate_threshold', 'N/A'),
+            'sample_rate': self.config.audio.sample_rate,
+            'channels': self.config.audio.channels
+        }
+        
+        # Get audio levels for debugging
+        audio_levels = self.audio_capture.get_audio_levels() if self._running else {}
+        
         return {
             'running': self._running,
             'paused': self._paused,
             'recording': self.audio_capture.is_recording(),
             'transcription_queue_size': transcription_stats.get('queue_size', 0),
             'total_transcribed': transcription_stats.get('total_processed', 0),
-            'daily_transcript_dates': list(self._daily_transcripts.keys()),
-            'google_docs_enabled': self.config.google_docs.enabled
+            'daily_transcript_dates': [str(d) for d in self._daily_transcripts.keys()],
+            'google_docs_enabled': self.config.google_docs.enabled,
+            'audio_config': audio_config,
+            'audio_levels': audio_levels,
+            'log_level': self.config.log_level
         }
     
     def force_daily_summary(self, target_date: Optional[date] = None) -> bool:
