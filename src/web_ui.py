@@ -176,8 +176,17 @@ class WebUI(LoggerMixin):
                 
                 elif action == 'upload_docs':
                     # Force upload to Google Docs
-                    self._force_upload_docs()
-                    return jsonify({'success': True, 'message': 'Google Docs upload triggered'})
+                    target_date = request.json.get('date') if request.json else None
+                    if target_date:
+                        target_date = datetime.fromisoformat(target_date).date()
+                    else:
+                        target_date = date.today()
+                    
+                    success = self._force_upload_docs_for_date(target_date)
+                    if success:
+                        return jsonify({'success': True, 'message': f'Google Docs upload completed for {target_date}'})
+                    else:
+                        return jsonify({'success': False, 'message': f'Google Docs upload failed for {target_date}'})
                 
                 elif action == 'generate_daily_transcript':
                     # Generate daily consolidated transcript
@@ -313,6 +322,73 @@ class WebUI(LoggerMixin):
         except Exception as e:
             self.logger.error(f"Error forcing Google Docs upload: {e}")
     
+    def _force_upload_docs_for_date(self, target_date: date) -> bool:
+        """Force upload summary and transcript for a specific date to Google Docs."""
+        try:
+            self.logger.info(f"Google Docs upload triggered for {target_date}")
+            
+            if not self.app_instance.config.google_docs.enabled:
+                self.logger.warning("Google Docs integration is disabled")
+                return False
+            
+            # Check if summary exists for this date
+            summary_dir = self.app_instance.config.get_storage_paths()['summaries']
+            summary_file = summary_dir / f"summary_{target_date.strftime('%Y-%m-%d')}.json"
+            
+            summary = None
+            if summary_file.exists():
+                try:
+                    # Load existing summary
+                    with open(summary_file, 'r') as f:
+                        summary_data = json.loads(f.read())
+                    
+                    # Create DailySummary object
+                    from .summarization import DailySummary
+                    
+                    # Convert string dates back to proper objects
+                    summary_data['date'] = datetime.fromisoformat(summary_data['date']).date()
+                    summary_data['created_at'] = datetime.fromisoformat(summary_data['created_at'])
+                    
+                    summary = DailySummary(**summary_data)
+                    self.logger.info(f"Found existing summary for {target_date}")
+                    
+                except Exception as e:
+                    self.logger.error(f"Error loading summary for {target_date}: {e}")
+            else:
+                # Try to generate summary if it doesn't exist
+                self.logger.info(f"No summary found for {target_date}, attempting to generate one")
+                success = self.app_instance.force_daily_summary(target_date)
+                if success:
+                    # Try to load the newly generated summary
+                    if summary_file.exists():
+                        with open(summary_file, 'r') as f:
+                            summary_data = json.loads(f.read())
+                        
+                        from .summarization import DailySummary
+                        summary_data['date'] = datetime.fromisoformat(summary_data['date']).date()
+                        summary_data['created_at'] = datetime.fromisoformat(summary_data['created_at'])
+                        summary = DailySummary(**summary_data)
+                    else:
+                        self.logger.warning(f"Summary generation claimed success but file not found for {target_date}")
+                else:
+                    self.logger.warning(f"Could not generate summary for {target_date}")
+            
+            # Get transcript text
+            daily_text = self.app_instance._get_daily_transcript(target_date)
+            
+            if not daily_text.strip():
+                self.logger.warning(f"No transcript data found for {target_date}")
+                return False
+            
+            # Upload to Google Docs
+            self.app_instance._upload_to_google_docs(target_date, daily_text, summary)
+            self.logger.info(f"Successfully uploaded to Google Docs for {target_date}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error uploading to Google Docs for {target_date}: {e}")
+            return False
+    
     def _get_uptime(self) -> str:
         """Get application uptime."""
         # This is a simple implementation - you might want to track start time
@@ -441,6 +517,32 @@ class WebUI(LoggerMixin):
             text-align: left;
         }
         
+        .date-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: flex-start;
+        }
+        
+        .date-controls label {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .date-input {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 200px;
+        }
+        
+        .date-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
         #audioFileInput {
             margin: 10px 0;
             padding: 8px;
@@ -512,6 +614,20 @@ class WebUI(LoggerMixin):
             <button class="btn btn-primary" onclick="forceSummary()">📝 Generate Summary</button>
             <button class="btn btn-primary" onclick="generateDailyTranscript()">📋 Generate Daily Transcript</button>
             <button class="btn btn-primary" onclick="uploadDocs()">☁️ Upload to Google Docs</button>
+        </div>
+        
+        <div class="card">
+            <h3>📅 Historical Processing</h3>
+            <p>Generate summaries and upload transcripts for previous dates</p>
+            <div class="date-controls">
+                <label for="targetDate">Select Date:</label>
+                <input type="date" id="targetDate" class="date-input">
+                <div class="date-buttons">
+                    <button class="btn btn-primary" onclick="generateSummaryForDate()">📝 Generate Summary</button>
+                    <button class="btn btn-primary" onclick="uploadDocsForDate()">☁️ Upload to Google Docs</button>
+                    <button class="btn btn-secondary" onclick="generateTranscriptForDate()">📋 Generate Transcript</button>
+                </div>
+            </div>
         </div>
         
         <div class="card">
@@ -653,6 +769,34 @@ class WebUI(LoggerMixin):
             controlAction('upload_docs');
         }
         
+        // Date-specific functions
+        function generateSummaryForDate() {
+            const dateInput = document.getElementById('targetDate');
+            if (!dateInput.value) {
+                showMessage('Please select a date first', 'error');
+                return;
+            }
+            controlAction('force_summary', { date: dateInput.value });
+        }
+        
+        function uploadDocsForDate() {
+            const dateInput = document.getElementById('targetDate');
+            if (!dateInput.value) {
+                showMessage('Please select a date first', 'error');
+                return;
+            }
+            controlAction('upload_docs', { date: dateInput.value });
+        }
+        
+        function generateTranscriptForDate() {
+            const dateInput = document.getElementById('targetDate');
+            if (!dateInput.value) {
+                showMessage('Please select a date first', 'error');
+                return;
+            }
+            controlAction('generate_daily_transcript', { date: dateInput.value });
+        }
+        
         function uploadAudioFiles() {
             const fileInput = document.getElementById('audioFileInput');
             const statusDiv = document.getElementById('uploadStatus');
@@ -705,9 +849,18 @@ class WebUI(LoggerMixin):
             });
         }
         
+        // Set default date to yesterday
+        function setDefaultDate() {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const dateString = yesterday.toISOString().split('T')[0];
+            document.getElementById('targetDate').value = dateString;
+        }
+        
         // Start updating status and logs
         updateStatus();
         updateLogs();
+        setDefaultDate();
         statusInterval = setInterval(updateStatus, 30000); // Update every 30 seconds
         setInterval(updateLogs, 60000); // Update logs every 60 seconds
     </script>

@@ -1,5 +1,6 @@
 """Automation and scheduling system for daily transcription and summary tasks."""
 
+import ssl
 import time
 import threading
 from datetime import datetime, date, timedelta
@@ -469,6 +470,9 @@ class TranscriptionApp(LoggerMixin):
             else:
                 self.logger.error("Failed to upload to Google Docs")
                 
+        except ssl.SSLError as e:
+            self.logger.error(f"SSL error uploading to Google Docs: {e}")
+            self.logger.info("This may be a network or certificate issue. Try again later or check your connection.")
         except Exception as e:
             self.logger.error(f"Error uploading to Google Docs: {e}")
     

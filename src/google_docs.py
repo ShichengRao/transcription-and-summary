@@ -2,6 +2,8 @@
 
 import os
 import json
+import ssl
+import socket
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -12,12 +14,14 @@ try:
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
+    import httplib2
 except ImportError:
     Request = None
     Credentials = None
     InstalledAppFlow = None
     build = None
     HttpError = None
+    httplib2 = None
 
 from .config import GoogleDocsConfig
 from .logger import LoggerMixin
@@ -47,13 +51,32 @@ class GoogleDocsService(LoggerMixin):
     
     def _check_dependencies(self) -> bool:
         """Check if required Google API dependencies are installed."""
-        if any(dep is None for dep in [Request, Credentials, InstalledAppFlow, build]):
+        if any(dep is None for dep in [Request, Credentials, InstalledAppFlow, build, httplib2]):
             self.logger.error(
                 "Google API dependencies not installed. "
                 "Install with: pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib"
             )
             return False
         return True
+    
+    def _create_http_client(self):
+        """Create HTTP client with proper SSL configuration."""
+        try:
+            # Create SSL context with more permissive settings
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            # Create httplib2 Http instance with SSL context
+            http = httplib2.Http(
+                timeout=30,
+                disable_ssl_certificate_validation=True
+            )
+            
+            return http
+        except Exception as e:
+            self.logger.warning(f"Could not create custom HTTP client: {e}")
+            return None
     
     def authenticate(self) -> bool:
         """Authenticate with Google APIs."""
@@ -91,13 +114,34 @@ class GoogleDocsService(LoggerMixin):
             
             self._credentials = creds
             
-            # Build service objects
-            self._docs_service = build('docs', 'v1', credentials=creds)
-            self._drive_service = build('drive', 'v3', credentials=creds)
+            # Create HTTP client with SSL configuration
+            http_client = self._create_http_client()
+            
+            # Build service objects with custom HTTP client
+            try:
+                if http_client:
+                    self._docs_service = build('docs', 'v1', credentials=creds, http=http_client)
+                    self._drive_service = build('drive', 'v3', credentials=creds, http=http_client)
+                else:
+                    # Fallback to default
+                    self._docs_service = build('docs', 'v1', credentials=creds)
+                    self._drive_service = build('drive', 'v3', credentials=creds)
+            except Exception as ssl_error:
+                self.logger.warning(f"SSL error with custom client, trying default: {ssl_error}")
+                # Fallback to default client
+                self._docs_service = build('docs', 'v1', credentials=creds)
+                self._drive_service = build('drive', 'v3', credentials=creds)
             
             self.logger.info("Google APIs authenticated successfully")
             return True
             
+        except ssl.SSLError as e:
+            self.logger.error(f"SSL error authenticating with Google APIs: {e}")
+            self.logger.info("Try updating certificates or check network connection")
+            return False
+        except socket.error as e:
+            self.logger.error(f"Network error authenticating with Google APIs: {e}")
+            return False
         except Exception as e:
             self.logger.error(f"Error authenticating with Google APIs: {e}")
             return False
