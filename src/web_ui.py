@@ -486,6 +486,10 @@ class WebUI(LoggerMixin):
                     summary_data['date'] = datetime.fromisoformat(summary_data['date']).date()
                     summary_data['created_at'] = datetime.fromisoformat(summary_data['created_at'])
                     
+                    # Add backward compatibility for missing first-person summary
+                    if 'summary_first_person' not in summary_data:
+                        summary_data['summary_first_person'] = ""
+                    
                     summary = DailySummary(**summary_data)
                     
                     # Upload to Google Docs
@@ -527,6 +531,10 @@ class WebUI(LoggerMixin):
                     summary_data['date'] = datetime.fromisoformat(summary_data['date']).date()
                     summary_data['created_at'] = datetime.fromisoformat(summary_data['created_at'])
                     
+                    # Add backward compatibility for missing first-person summary
+                    if 'summary_first_person' not in summary_data:
+                        summary_data['summary_first_person'] = ""
+                    
                     summary = DailySummary(**summary_data)
                     self.logger.info(f"Found existing summary for {target_date}")
                     
@@ -545,6 +553,11 @@ class WebUI(LoggerMixin):
                         from .summarization import DailySummary
                         summary_data['date'] = datetime.fromisoformat(summary_data['date']).date()
                         summary_data['created_at'] = datetime.fromisoformat(summary_data['created_at'])
+                        
+                        # Add backward compatibility for missing first-person summary
+                        if 'summary_first_person' not in summary_data:
+                            summary_data['summary_first_person'] = ""
+                        
                         summary = DailySummary(**summary_data)
                     else:
                         self.logger.warning(f"Summary generation claimed success but file not found for {target_date}")
@@ -1208,7 +1221,7 @@ class WebUI(LoggerMixin):
                     updateStatus();
                     updateLogs();
                     setDefaultDate();
-                    statusInterval = setInterval(updateStatus, 30000);
+                    statusInterval = setInterval(updateStatus, 2000);  // Update every 2 seconds for live audio
                     setInterval(updateLogs, 60000);
                 })
                 .catch(error => {

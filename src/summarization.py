@@ -29,6 +29,7 @@ class DailySummary:
     word_count: int
     key_topics: List[str]
     summary: str
+    summary_first_person: str
     action_items: List[str]
     meetings: List[Dict[str, Any]]
     sentiment: str
@@ -108,6 +109,7 @@ class SummarizationService(LoggerMixin):
                 word_count=word_count,
                 key_topics=analysis.get('key_topics', []),
                 summary=analysis.get('summary', ''),
+                summary_first_person=analysis.get('summary_first_person', ''),
                 action_items=analysis.get('action_items', []),
                 meetings=analysis.get('meetings', []),
                 sentiment=analysis.get('sentiment', 'neutral'),
@@ -256,6 +258,7 @@ Transcript:
 Please provide a JSON response with the following structure:
 {{
     "summary": "A concise 2-3 sentence summary of the day's main activities and conversations",
+    "summary_first_person": "A personal, first-person summary that maintains the speaker's voice and perspective, using 'I' statements and preserving emotional tone",
     "key_topics": ["topic1", "topic2", "topic3"],
     "action_items": ["action1", "action2"],
     "meetings": [
@@ -284,6 +287,13 @@ Focus on:
 - Noting any important decisions or outcomes
 - Estimating time spent on different activities
 
+For the first-person summary:
+- Write from the speaker's perspective using "I" statements
+- Preserve the emotional tone and personal voice
+- Maintain the speaker's way of expressing themselves
+- Focus on their experiences, thoughts, and feelings
+- Keep it personal and authentic rather than analytical
+
 Respond only with valid JSON.
 """
         return prompt
@@ -308,6 +318,7 @@ Respond only with valid JSON.
         
         return {
             "summary": ai_response[:200] + "..." if len(ai_response) > 200 else ai_response,
+            "summary_first_person": "I had various conversations and activities today. The transcript contains my daily interactions and thoughts.",
             "key_topics": key_topics[:5],
             "action_items": [],
             "meetings": [],
@@ -501,6 +512,7 @@ Keep it concise but insightful.
         
         return {
             'summary': f"Daily transcript containing {len(words)} words across {len(sentences)} sentences. Key topics discussed include: {', '.join(key_topics[:3])}.",
+            'summary_first_person': "I had various conversations and activities today. The transcript contains my daily interactions and thoughts.",
             'key_topics': key_topics,
             'action_items': [],
             'meetings': [],
