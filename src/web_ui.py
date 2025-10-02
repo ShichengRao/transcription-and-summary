@@ -5,7 +5,7 @@ import threading
 import time
 from datetime import datetime, date, timedelta
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 try:
     from flask import Flask, render_template_string, jsonify, request, redirect, url_for
