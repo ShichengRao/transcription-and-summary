@@ -141,15 +141,15 @@ class AudioCapture(LoggerMixin):
                 'threshold': self.config.silence_threshold
             }
         
-        current = self._audio_level_history[-1] if self._audio_level_history else 0.0
-        average = sum(self._audio_level_history) / len(self._audio_level_history)
-        maximum = max(self._audio_level_history)
+        current = float(self._audio_level_history[-1]) if self._audio_level_history else 0.0
+        average = float(sum(self._audio_level_history) / len(self._audio_level_history))
+        maximum = float(max(self._audio_level_history))
         
         return {
             'current': current,
             'average': average,
             'maximum': maximum,
-            'threshold': self.config.silence_threshold,
+            'threshold': float(self.config.silence_threshold),
             'samples': len(self._audio_level_history)
         }
     

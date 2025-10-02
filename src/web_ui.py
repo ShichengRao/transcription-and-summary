@@ -3,6 +3,7 @@
 import json
 import threading
 import time
+import numpy as np
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -22,6 +23,32 @@ except ImportError:
     serve = None
 
 from .logger import LoggerMixin
+
+
+class NumpyJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle numpy types."""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+
+def safe_jsonify(data):
+    """Safely convert data to JSON, handling numpy types."""
+    try:
+        return jsonify(data)
+    except TypeError:
+        # Fallback: use custom encoder
+        json_str = json.dumps(data, cls=NumpyJSONEncoder)
+        response = Flask.response_class(
+            json_str,
+            mimetype='application/json'
+        )
+        return response
 
 
 class WebUI(LoggerMixin):
@@ -258,12 +285,12 @@ class WebUI(LoggerMixin):
                 self.logger.info("Diagnose API endpoint called")
                 if hasattr(self.app_instance, 'diagnose_services'):
                     diagnosis = self.app_instance.diagnose_services()
-                    return jsonify(diagnosis)
+                    return safe_jsonify(diagnosis)
                 else:
-                    return jsonify({'error': 'Diagnose method not available'})
+                    return safe_jsonify({'error': 'Diagnose method not available'})
             except Exception as e:
                 self.logger.error(f"Error in diagnose API: {e}")
-                return jsonify({'error': str(e)})
+                return safe_jsonify({'error': str(e)})
         
         @self.flask_app.route('/api/status')
         def api_status():
@@ -282,10 +309,10 @@ class WebUI(LoggerMixin):
                 })
                 
                 self.logger.debug(f"Returning status: {status}")
-                return jsonify(status)
+                return safe_jsonify(status)
             except Exception as e:
                 self.logger.error(f"Error in status API: {e}")
-                return jsonify({
+                return safe_jsonify({
                     'error': str(e),
                     'running': False,
                     'paused': False,

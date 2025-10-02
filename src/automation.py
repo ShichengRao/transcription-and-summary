@@ -558,12 +558,12 @@ class TranscriptionApp(LoggerMixin):
             
             # Get audio configuration for debugging
             audio_config = {
-                'silence_threshold': self.config.audio.silence_threshold,
-                'silence_duration': self.config.audio.silence_duration,
-                'min_audio_duration': getattr(self.config.audio, 'min_audio_duration', 'N/A'),
-                'noise_gate_threshold': getattr(self.config.audio, 'noise_gate_threshold', 'N/A'),
-                'sample_rate': self.config.audio.sample_rate,
-                'channels': self.config.audio.channels
+                'silence_threshold': float(self.config.audio.silence_threshold),
+                'silence_duration': float(self.config.audio.silence_duration),
+                'min_audio_duration': float(getattr(self.config.audio, 'min_audio_duration', 2.0)),
+                'noise_gate_threshold': float(getattr(self.config.audio, 'noise_gate_threshold', 0.015)),
+                'sample_rate': int(self.config.audio.sample_rate),
+                'channels': int(self.config.audio.channels)
             }
             
             # Get audio levels for debugging
