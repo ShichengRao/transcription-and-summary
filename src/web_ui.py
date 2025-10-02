@@ -201,9 +201,16 @@ class WebUI(LoggerMixin):
         def index():
             """Main dashboard."""
             try:
-                return render_template_string(self._get_main_template())
+                self.logger.info("Rendering main template...")
+                template = self._get_main_template()
+                self.logger.info(f"Template length: {len(template)} characters")
+                result = render_template_string(template)
+                self.logger.info("Template rendered successfully")
+                return result
             except Exception as e:
                 self.logger.error(f"Error rendering main template: {e}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
                 return f'''
                 <html>
                 <head><title>Transcription App - Error</title></head>
@@ -211,6 +218,7 @@ class WebUI(LoggerMixin):
                     <h1>Template Error</h1>
                     <p>Error rendering main template: {e}</p>
                     <p><a href="/debug">Go to debug page</a></p>
+                    <p><a href="/api/test">Test API</a></p>
                 </body>
                 </html>
                 '''
@@ -877,6 +885,7 @@ class WebUI(LoggerMixin):
     </div>
 
     <script>
+        console.log('JavaScript loaded successfully!');
         let statusInterval;
         
         function updateStatus() {
@@ -888,10 +897,22 @@ class WebUI(LoggerMixin):
                 })
                 .then(data => {
                     console.log('Status data:', data);
-                    // Update recording status
+                    
+                    // Check if DOM elements exist
                     const recordingCard = document.getElementById('recording-status');
                     const recordingValue = document.getElementById('recording-value');
                     const heartbeat = document.getElementById('heartbeat');
+                    
+                    console.log('DOM elements found:', {
+                        recordingCard: !!recordingCard,
+                        recordingValue: !!recordingValue,
+                        heartbeat: !!heartbeat
+                    });
+                    
+                    if (!recordingCard || !recordingValue || !heartbeat) {
+                        console.error('Required DOM elements not found!');
+                        return;
+                    }
                     
                     if (data.recording && !data.paused) {
                         recordingCard.className = 'status-card recording';
@@ -1150,8 +1171,14 @@ class WebUI(LoggerMixin):
         // Initialize when page loads
         function initializePage() {
             console.log('Initializing page...');
+            console.log('DOM ready state:', document.readyState);
             
             const connectionStatus = document.getElementById('connection-status');
+            if (!connectionStatus) {
+                console.error('connection-status element not found!');
+                return;
+            }
+            
             connectionStatus.innerHTML = '🔄 Testing connection...';
             connectionStatus.style.background = '#ffc107';
             
