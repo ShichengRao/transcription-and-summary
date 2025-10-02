@@ -931,7 +931,7 @@ class WebUI(LoggerMixin):
                     // Update other status
                     const heartbeatAgo = Math.floor(data.heartbeat_ago / 60);
                     document.getElementById('last-activity').textContent = 
-                        heartbeatAgo < 1 ? 'Just now' : `${heartbeatAgo} min ago`;
+                        heartbeatAgo < 1 ? 'Just now' : heartbeatAgo + ' min ago';
                     
                     document.getElementById('queue-size').textContent = 
                         data.transcription_queue_size || 0;
@@ -951,31 +951,29 @@ class WebUI(LoggerMixin):
                             const threshold = data.audio_levels.threshold.toFixed(4);
                             const aboveThreshold = data.audio_levels.current > data.audio_levels.threshold;
                             
-                            audioLevelsHtml = `
-                                <strong>🎤 Live Audio Levels:</strong><br>
-                                Current: ${current} ${aboveThreshold ? '🟢' : '🔴'}<br>
-                                Average: ${average}<br>
-                                Maximum: ${maximum}<br>
-                                Threshold: ${threshold}<br>
-                                Samples: ${data.audio_levels.samples}<br>
-                                <br>
-                            `;
+                            audioLevelsHtml = 
+                                '<strong>🎤 Live Audio Levels:</strong><br>' +
+                                'Current: ' + current + ' ' + (aboveThreshold ? '🟢' : '🔴') + '<br>' +
+                                'Average: ' + average + '<br>' +
+                                'Maximum: ' + maximum + '<br>' +
+                                'Threshold: ' + threshold + '<br>' +
+                                'Samples: ' + data.audio_levels.samples + '<br>' +
+                                '<br>';
                         }
                         
-                        debugInfo.innerHTML = audioLevelsHtml + `
-                            <strong>Audio Configuration:</strong><br>
-                            Silence Threshold: ${data.audio_config.silence_threshold}<br>
-                            Silence Duration: ${data.audio_config.silence_duration}s<br>
-                            Min Audio Duration: ${data.audio_config.min_audio_duration}s<br>
-                            Noise Gate Threshold: ${data.audio_config.noise_gate_threshold}<br>
-                            Sample Rate: ${data.audio_config.sample_rate}Hz<br>
-                            Channels: ${data.audio_config.channels}<br>
-                            <br>
-                            <strong>System Status:</strong><br>
-                            Log Level: ${data.log_level}<br>
-                            Google Docs: ${data.google_docs_enabled ? 'Enabled' : 'Disabled'}<br>
-                            Daily Transcripts: ${data.daily_transcript_dates ? data.daily_transcript_dates.length : 0} dates
-                        `;
+                        debugInfo.innerHTML = audioLevelsHtml +
+                            '<strong>Audio Configuration:</strong><br>' +
+                            'Silence Threshold: ' + data.audio_config.silence_threshold + '<br>' +
+                            'Silence Duration: ' + data.audio_config.silence_duration + 's<br>' +
+                            'Min Audio Duration: ' + data.audio_config.min_audio_duration + 's<br>' +
+                            'Noise Gate Threshold: ' + data.audio_config.noise_gate_threshold + '<br>' +
+                            'Sample Rate: ' + data.audio_config.sample_rate + 'Hz<br>' +
+                            'Channels: ' + data.audio_config.channels + '<br>' +
+                            '<br>' +
+                            '<strong>System Status:</strong><br>' +
+                            'Log Level: ' + data.log_level + '<br>' +
+                            'Google Docs: ' + (data.google_docs_enabled ? 'Enabled' : 'Disabled') + '<br>' +
+                            'Daily Transcripts: ' + (data.daily_transcript_dates ? data.daily_transcript_dates.length : 0) + ' dates';
                     }
                 })
                 .catch(error => {
@@ -996,23 +994,23 @@ class WebUI(LoggerMixin):
                     const logsElement = document.getElementById('logs');
                     if (data.logs && data.logs.length > 0) {
                         // Join logs with newlines and show recent entries
-                        logsElement.textContent = data.logs.join('\n');
+                        logsElement.textContent = data.logs.join('\\n');
                         logsElement.scrollTop = logsElement.scrollHeight;
                     } else {
-                        logsElement.textContent = 'No logs available or log file not found.\nCheck if the application is running and generating logs.';
+                        logsElement.textContent = 'No logs available or log file not found.\\nCheck if the application is running and generating logs.';
                     }
                 })
                 .catch(error => {
                     console.error('Error fetching logs:', error);
                     const logsElement = document.getElementById('logs');
-                    logsElement.textContent = `Error fetching logs: ${error}\nMake sure the application is running.\nCheck browser console for details.`;
+                    logsElement.textContent = 'Error fetching logs: ' + error + '\\nMake sure the application is running.\\nCheck browser console for details.';
                 });
         }
         
         function showMessage(text, type) {
             const messageEl = document.getElementById('message');
             messageEl.textContent = text;
-            messageEl.className = `message ${type}`;
+            messageEl.className = 'message ' + type;
             messageEl.style.display = 'block';
             setTimeout(() => {
                 messageEl.style.display = 'none';
@@ -1020,7 +1018,7 @@ class WebUI(LoggerMixin):
         }
         
         function controlAction(action, data = {}) {
-            fetch(`/api/control/${action}`, {
+            fetch('/api/control/' + action, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1135,7 +1133,7 @@ class WebUI(LoggerMixin):
             const formData = new FormData();
             formData.append('audio_file', file);
             
-            statusDiv.innerHTML = `<span style="color: blue;">Uploading ${file.name} (${index + 1}/${files.length})...</span>`;
+            statusDiv.innerHTML = '<span style="color: blue;">Uploading ' + file.name + ' (' + (index + 1) + '/' + files.length + ')...</span>';
             
             fetch('/api/upload', {
                 method: 'POST',
@@ -1144,17 +1142,17 @@ class WebUI(LoggerMixin):
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    statusDiv.innerHTML = `<span style="color: green;">✅ ${file.name}: ${data.message}</span>`;
+                    statusDiv.innerHTML = '<span style="color: green;">✅ ' + file.name + ': ' + data.message + '</span>';
                     // Continue with next file after a short delay
                     setTimeout(() => uploadFileSequentially(files, index + 1, statusDiv), 1000);
                 } else {
-                    statusDiv.innerHTML = `<span style="color: red;">❌ ${file.name}: ${data.message}</span>`;
+                    statusDiv.innerHTML = '<span style="color: red;">❌ ' + file.name + ': ' + data.message + '</span>';
                     // Continue with next file even if this one failed
                     setTimeout(() => uploadFileSequentially(files, index + 1, statusDiv), 2000);
                 }
             })
             .catch(error => {
-                statusDiv.innerHTML = `<span style="color: red;">❌ ${file.name}: Upload failed - ${error}</span>`;
+                statusDiv.innerHTML = '<span style="color: red;">❌ ' + file.name + ': Upload failed - ' + error + '</span>';
                 // Continue with next file even if this one failed
                 setTimeout(() => uploadFileSequentially(files, index + 1, statusDiv), 2000);
             });
@@ -1222,15 +1220,14 @@ class WebUI(LoggerMixin):
                     showMessage('Cannot connect to server - check console for details', 'error');
                     
                     // Show debug info
-                    document.getElementById('debug-info').innerHTML = `
-                        <strong>Connection Error:</strong><br>
-                        ${error}<br><br>
-                        <strong>Troubleshooting:</strong><br>
-                        1. Check if the application is running<br>
-                        2. Try <a href="/debug">/debug</a> page<br>
-                        3. Check browser console for details<br>
-                        4. Try the refresh button above
-                    `;
+                    document.getElementById('debug-info').innerHTML = 
+                        '<strong>Connection Error:</strong><br>' +
+                        error + '<br><br>' +
+                        '<strong>Troubleshooting:</strong><br>' +
+                        '1. Check if the application is running<br>' +
+                        '2. Try <a href="/debug">/debug</a> page<br>' +
+                        '3. Check browser console for details<br>' +
+                        '4. Try the refresh button above';
                 });
         }
         
