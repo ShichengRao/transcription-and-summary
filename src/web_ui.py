@@ -47,6 +47,14 @@ class WebUI(LoggerMixin):
             self.logger.error(f"Internal server error: {error}")
             return jsonify({'error': 'Internal server error', 'details': str(error)}), 500
         
+        # Add CORS headers for API endpoints
+        @self.flask_app.after_request
+        def after_request(response):
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+            response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE')
+            return response
+        
         # Status tracking
         self.last_heartbeat = datetime.now()
         self.heartbeat_thread: Optional[threading.Thread] = None
@@ -54,6 +62,11 @@ class WebUI(LoggerMixin):
         
         # Setup routes
         self._setup_routes()
+        
+        # Log registered routes for debugging
+        self.logger.info("Registered Flask routes:")
+        for rule in self.flask_app.url_map.iter_rules():
+            self.logger.info(f"  {rule.rule} -> {rule.endpoint}")
         
         self.logger.info(f"Web UI initialized on {host}:{port}")
     
@@ -67,38 +80,52 @@ class WebUI(LoggerMixin):
             return
         
         try:
+            # Check if port is available
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            result = sock.connect_ex((self.host, self.port))
+            sock.close()
+            
+            if result == 0:
+                self.logger.error(f"Port {self.port} is already in use!")
+                return
+            
             self.running = True
             
             # Start heartbeat thread
             self.heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
             self.heartbeat_thread.start()
             
-            # Start web server in a separate thread
+            # Start web server in a separate thread with error handling
+            def start_server():
+                try:
+                    if WAITRESS_AVAILABLE:
+                        self.logger.info("Starting waitress server...")
+                        serve(
+                            self.flask_app,
+                            host=self.host,
+                            port=self.port,
+                            threads=4
+                        )
+                    else:
+                        self.logger.info("Starting Flask development server...")
+                        self.flask_app.run(
+                            host=self.host, 
+                            port=self.port, 
+                            debug=False, 
+                            use_reloader=False,
+                            threaded=True
+                        )
+                except Exception as e:
+                    self.logger.error(f"Web server failed to start: {e}")
+                    self.running = False
+            
             if WAITRESS_AVAILABLE:
-                # Use production WSGI server
-                server_thread = threading.Thread(
-                    target=lambda: serve(
-                        self.flask_app,
-                        host=self.host,
-                        port=self.port,
-                        threads=4
-                    ),
-                    daemon=True
-                )
-                self.logger.info(f"Starting production web server on {self.host}:{self.port}")
+                self.logger.info(f"Using production web server (waitress) on {self.host}:{self.port}")
             else:
-                # Fallback to Flask development server
-                server_thread = threading.Thread(
-                    target=lambda: self.flask_app.run(
-                        host=self.host, 
-                        port=self.port, 
-                        debug=False, 
-                        use_reloader=False,
-                        threaded=True
-                    ),
-                    daemon=True
-                )
                 self.logger.warning("Using Flask development server (install waitress for production)")
+            
+            server_thread = threading.Thread(target=start_server, daemon=True)
             
             self.logger.info("Starting web server thread...")
             server_thread.start()
@@ -146,7 +173,60 @@ class WebUI(LoggerMixin):
         @self.flask_app.route('/')
         def index():
             """Main dashboard."""
-            return render_template_string(self._get_main_template())
+            try:
+                return render_template_string(self._get_main_template())
+            except Exception as e:
+                self.logger.error(f"Error rendering main template: {e}")
+                return f'''
+                <html>
+                <head><title>Transcription App - Error</title></head>
+                <body>
+                    <h1>Template Error</h1>
+                    <p>Error rendering main template: {e}</p>
+                    <p><a href="/debug">Go to debug page</a></p>
+                </body>
+                </html>
+                '''
+        
+        @self.flask_app.route('/debug')
+        def debug_page():
+            """Simple debug page to test API connectivity."""
+            return '''
+            <!DOCTYPE html>
+            <html>
+            <head><title>Debug - Transcription App</title></head>
+            <body>
+                <h1>Debug Page</h1>
+                <button onclick="testHealth()">Test /api/health</button>
+                <button onclick="testAPI()">Test /api/test</button>
+                <button onclick="testStatus()">Test /api/status</button>
+                <div id="results" style="margin-top: 20px; font-family: monospace;"></div>
+                
+                <script>
+                function testHealth() {
+                    fetch('/api/health')
+                        .then(r => r.json())
+                        .then(d => document.getElementById('results').innerHTML = '<h3>Health:</h3><pre>' + JSON.stringify(d, null, 2) + '</pre>')
+                        .catch(e => document.getElementById('results').innerHTML = '<h3>Health Error:</h3>' + e);
+                }
+                
+                function testAPI() {
+                    fetch('/api/test')
+                        .then(r => r.json())
+                        .then(d => document.getElementById('results').innerHTML = '<h3>Test:</h3><pre>' + JSON.stringify(d, null, 2) + '</pre>')
+                        .catch(e => document.getElementById('results').innerHTML = '<h3>Test Error:</h3>' + e);
+                }
+                
+                function testStatus() {
+                    fetch('/api/status')
+                        .then(r => r.json())
+                        .then(d => document.getElementById('results').innerHTML = '<h3>Status:</h3><pre>' + JSON.stringify(d, null, 2) + '</pre>')
+                        .catch(e => document.getElementById('results').innerHTML = '<h3>Status Error:</h3>' + e);
+                }
+                </script>
+            </body>
+            </html>
+            '''
         
         @self.flask_app.route('/api/test')
         def api_test():
@@ -156,7 +236,19 @@ class WebUI(LoggerMixin):
                 'status': 'ok', 
                 'message': 'Web UI is working',
                 'timestamp': datetime.now().isoformat(),
-                'app_running': hasattr(self.app_instance, 'is_running') and self.app_instance.is_running()
+                'app_running': hasattr(self.app_instance, 'is_running') and self.app_instance.is_running(),
+                'web_ui_running': self.running,
+                'host': self.host,
+                'port': self.port
+            })
+        
+        @self.flask_app.route('/api/health')
+        def api_health():
+            """Simple health check that doesn't depend on app_instance."""
+            return jsonify({
+                'status': 'healthy',
+                'timestamp': datetime.now().isoformat(),
+                'message': 'Flask server is responding'
             })
         
         @self.flask_app.route('/api/diagnose')
@@ -669,6 +761,9 @@ class WebUI(LoggerMixin):
         <div class="header">
             <h1>🎤 Transcription App Dashboard</h1>
             <p>Monitor and control your always-on transcription service</p>
+            <div id="connection-status" style="margin-top: 10px; padding: 5px; border-radius: 4px; background: #ffc107; color: black;">
+                🔄 Connecting to server...
+            </div>
         </div>
         
         <div id="message" class="message"></div>
@@ -699,6 +794,7 @@ class WebUI(LoggerMixin):
         </div>
         
         <div class="controls">
+            <button class="btn btn-secondary" onclick="refreshStatus()">🔄 Refresh Status</button>
             <button class="btn btn-warning" onclick="pauseRecording()">⏸️ Pause Recording</button>
             <button class="btn btn-success" onclick="resumeRecording()">▶️ Resume Recording</button>
             <button class="btn btn-secondary" onclick="testAudio()">🎤 Test Audio Levels</button>
@@ -906,6 +1002,12 @@ class WebUI(LoggerMixin):
             controlAction('resume');
         }
         
+        function refreshStatus() {
+            showMessage('Refreshing status...', 'info');
+            updateStatus();
+            updateLogs();
+        }
+        
         function testAudio() {
             showMessage('Audio test: Speak now and watch the debug section for live audio levels!', 'info');
             // Force an immediate status update to show current levels
@@ -1018,12 +1120,72 @@ class WebUI(LoggerMixin):
             document.getElementById('targetDate').value = dateString;
         }
         
-        // Start updating status and logs
-        updateStatus();
-        updateLogs();
-        setDefaultDate();
-        statusInterval = setInterval(updateStatus, 30000); // Update every 30 seconds
-        setInterval(updateLogs, 60000); // Update logs every 60 seconds
+        // Initialize when page loads
+        function initializePage() {
+            console.log('Initializing page...');
+            
+            const connectionStatus = document.getElementById('connection-status');
+            connectionStatus.innerHTML = '🔄 Testing connection...';
+            connectionStatus.style.background = '#ffc107';
+            
+            // Test basic connectivity first
+            fetch('/api/health')
+                .then(response => {
+                    console.log('Health check response:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Health check successful:', data);
+                    connectionStatus.innerHTML = '✅ Server responding';
+                    connectionStatus.style.background = '#28a745';
+                    connectionStatus.style.color = 'white';
+                    
+                    // Now test the main API
+                    return fetch('/api/test');
+                })
+                .then(response => {
+                    console.log('Test API response:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Test API successful:', data);
+                    connectionStatus.innerHTML = '✅ Connected to application';
+                    showMessage('Connected to server', 'success');
+                    
+                    // Start regular updates
+                    updateStatus();
+                    updateLogs();
+                    setDefaultDate();
+                    statusInterval = setInterval(updateStatus, 30000);
+                    setInterval(updateLogs, 60000);
+                })
+                .catch(error => {
+                    console.error('Connectivity failed:', error);
+                    connectionStatus.innerHTML = '❌ Connection failed';
+                    connectionStatus.style.background = '#dc3545';
+                    connectionStatus.style.color = 'white';
+                    
+                    showMessage('Cannot connect to server - check console for details', 'error');
+                    
+                    // Show debug info
+                    document.getElementById('debug-info').innerHTML = `
+                        <strong>Connection Error:</strong><br>
+                        ${error}<br><br>
+                        <strong>Troubleshooting:</strong><br>
+                        1. Check if the application is running<br>
+                        2. Try <a href="/debug">/debug</a> page<br>
+                        3. Check browser console for details<br>
+                        4. Try the refresh button above
+                    `;
+                });
+        }
+        
+        // Wait for page to load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializePage);
+        } else {
+            initializePage();
+        }
     </script>
 </body>
 </html>
