@@ -63,17 +63,18 @@ class TranscriptionService(LoggerMixin):
     
     def initialize_model(self) -> bool:
         """Initialize the Whisper model."""
+        self.logger.info("Initializing transcription model...")
+        
         # Try faster-whisper first, then fallback to openai-whisper
         if WhisperModel is not None:
+            self.logger.info("Using faster-whisper backend")
             return self._initialize_faster_whisper()
         elif openai_whisper is not None:
+            self.logger.info("Using openai-whisper backend")
             return self._initialize_openai_whisper()
         else:
             self.logger.error("No transcription backend available. Install with: pip install faster-whisper OR pip install openai-whisper")
             return False
-        
-        # This method is now split into backend-specific methods
-        pass
     
     def _initialize_faster_whisper(self) -> bool:
         """Initialize faster-whisper backend."""

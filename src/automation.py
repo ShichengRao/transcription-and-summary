@@ -72,15 +72,22 @@ class TranscriptionApp(LoggerMixin):
             return True
         
         try:
+            # Set running flag early so web UI can see it
+            self._running = True
+            
             # Initialize transcription service
+            self.logger.info("Starting transcription service...")
             if not self.transcription_service.start_processing():
                 self.logger.error("Failed to start transcription service")
+                self._running = False
                 return False
             
             # Start audio capture
+            self.logger.info("Starting audio capture...")
             self.audio_capture.start_recording()
             
             # Setup scheduler for daily tasks
+            self.logger.info("Setting up scheduler...")
             self._setup_scheduler()
             
             # Start web UI if enabled
@@ -94,7 +101,6 @@ class TranscriptionApp(LoggerMixin):
                     self.logger.error(f"Failed to start web dashboard: {e}")
                     self._web_ui = None
             
-            self._running = True
             self._notify_status("Recording and transcribing...")
             
             self.logger.info("Transcription application started successfully")
@@ -102,6 +108,17 @@ class TranscriptionApp(LoggerMixin):
             
         except Exception as e:
             self.logger.error(f"Error starting application: {e}")
+            self._running = False
+            # Try to clean up any partially started services
+            try:
+                if hasattr(self, 'audio_capture'):
+                    self.audio_capture.stop_recording()
+                if hasattr(self, 'transcription_service'):
+                    self.transcription_service.stop_processing()
+                if hasattr(self, '_scheduler') and self._scheduler:
+                    self._scheduler.shutdown()
+            except Exception as cleanup_error:
+                self.logger.error(f"Error during cleanup: {cleanup_error}")
             return False
     
     def stop(self) -> None:
@@ -536,33 +553,115 @@ class TranscriptionApp(LoggerMixin):
     
     def get_status(self) -> Dict[str, Any]:
         """Get current application status."""
-        transcription_stats = self.transcription_service.get_statistics()
-        
-        # Get audio configuration for debugging
-        audio_config = {
-            'silence_threshold': self.config.audio.silence_threshold,
-            'silence_duration': self.config.audio.silence_duration,
-            'min_audio_duration': getattr(self.config.audio, 'min_audio_duration', 'N/A'),
-            'noise_gate_threshold': getattr(self.config.audio, 'noise_gate_threshold', 'N/A'),
-            'sample_rate': self.config.audio.sample_rate,
-            'channels': self.config.audio.channels
+        try:
+            transcription_stats = self.transcription_service.get_statistics() if hasattr(self, 'transcription_service') else {}
+            
+            # Get audio configuration for debugging
+            audio_config = {
+                'silence_threshold': self.config.audio.silence_threshold,
+                'silence_duration': self.config.audio.silence_duration,
+                'min_audio_duration': getattr(self.config.audio, 'min_audio_duration', 'N/A'),
+                'noise_gate_threshold': getattr(self.config.audio, 'noise_gate_threshold', 'N/A'),
+                'sample_rate': self.config.audio.sample_rate,
+                'channels': self.config.audio.channels
+            }
+            
+            # Get audio levels for debugging
+            audio_levels = {}
+            if self._running and hasattr(self, 'audio_capture'):
+                try:
+                    audio_levels = self.audio_capture.get_audio_levels()
+                except Exception as e:
+                    self.logger.error(f"Error getting audio levels: {e}")
+            
+            # Service health check
+            services_status = {
+                'transcription_service': hasattr(self, 'transcription_service') and self.transcription_service._processing if hasattr(self, 'transcription_service') else False,
+                'audio_capture': hasattr(self, 'audio_capture') and self.audio_capture.is_recording() if hasattr(self, 'audio_capture') else False,
+                'scheduler': hasattr(self, '_scheduler') and self._scheduler and self._scheduler.running if hasattr(self, '_scheduler') else False,
+                'web_ui': hasattr(self, '_web_ui') and self._web_ui and self._web_ui.running if hasattr(self, '_web_ui') else False
+            }
+            
+            return {
+                'running': self._running,
+                'paused': self._paused,
+                'recording': self.audio_capture.is_recording() if hasattr(self, 'audio_capture') else False,
+                'transcription_queue_size': transcription_stats.get('queue_size', 0),
+                'total_transcribed': transcription_stats.get('total_processed', 0),
+                'daily_transcript_dates': [str(d) for d in self._daily_transcripts.keys()],
+                'google_docs_enabled': self.config.google_docs.enabled,
+                'audio_config': audio_config,
+                'audio_levels': audio_levels,
+                'log_level': self.config.log_level,
+                'services_status': services_status
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting status: {e}")
+            return {
+                'running': False,
+                'paused': False,
+                'recording': False,
+                'error': str(e),
+                'services_status': {}
+            }
+    
+    def diagnose_services(self) -> Dict[str, Any]:
+        """Diagnose the health of all services."""
+        diagnosis = {
+            'timestamp': datetime.now().isoformat(),
+            'app_running': self._running,
+            'services': {}
         }
         
-        # Get audio levels for debugging
-        audio_levels = self.audio_capture.get_audio_levels() if self._running else {}
+        # Check transcription service
+        if hasattr(self, 'transcription_service'):
+            try:
+                stats = self.transcription_service.get_statistics()
+                diagnosis['services']['transcription'] = {
+                    'exists': True,
+                    'processing': self.transcription_service._processing,
+                    'stats': stats,
+                    'error': None
+                }
+            except Exception as e:
+                diagnosis['services']['transcription'] = {
+                    'exists': True,
+                    'processing': False,
+                    'error': str(e)
+                }
+        else:
+            diagnosis['services']['transcription'] = {'exists': False}
         
-        return {
-            'running': self._running,
-            'paused': self._paused,
-            'recording': self.audio_capture.is_recording(),
-            'transcription_queue_size': transcription_stats.get('queue_size', 0),
-            'total_transcribed': transcription_stats.get('total_processed', 0),
-            'daily_transcript_dates': [str(d) for d in self._daily_transcripts.keys()],
-            'google_docs_enabled': self.config.google_docs.enabled,
-            'audio_config': audio_config,
-            'audio_levels': audio_levels,
-            'log_level': self.config.log_level
-        }
+        # Check audio capture
+        if hasattr(self, 'audio_capture'):
+            try:
+                diagnosis['services']['audio'] = {
+                    'exists': True,
+                    'recording': self.audio_capture.is_recording(),
+                    'levels': self.audio_capture.get_audio_levels(),
+                    'error': None
+                }
+            except Exception as e:
+                diagnosis['services']['audio'] = {
+                    'exists': True,
+                    'recording': False,
+                    'error': str(e)
+                }
+        else:
+            diagnosis['services']['audio'] = {'exists': False}
+        
+        # Check web UI
+        if hasattr(self, '_web_ui') and self._web_ui:
+            diagnosis['services']['web_ui'] = {
+                'exists': True,
+                'running': self._web_ui.running,
+                'host': self._web_ui.host,
+                'port': self._web_ui.port
+            }
+        else:
+            diagnosis['services']['web_ui'] = {'exists': False}
+        
+        return diagnosis
     
     def force_daily_summary(self, target_date: Optional[date] = None) -> bool:
         """Force generation of daily summary for specified date."""
