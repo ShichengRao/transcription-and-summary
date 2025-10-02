@@ -333,9 +333,14 @@ class GoogleDocsService(LoggerMixin):
         section += f"Word Count: {summary.word_count:,}\n"
         section += f"Sentiment: {summary.sentiment.title()}\n\n"
         
-        # Summary
-        section += "Overview:\n"
+        # Summary - Third Person (Analytical)
+        section += "Overview (Analytical):\n"
         section += f"{summary.summary}\n\n"
+        
+        # Summary - First Person (Personal)
+        if hasattr(summary, 'summary_first_person') and summary.summary_first_person:
+            section += "Personal Reflection:\n"
+            section += f"{summary.summary_first_person}\n\n"
         
         # Key topics
         if summary.key_topics:
