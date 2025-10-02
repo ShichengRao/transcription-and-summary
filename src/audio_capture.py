@@ -7,7 +7,7 @@ import threading
 import time
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, Dict
 from queue import Queue, Empty
 from dataclasses import dataclass
 
