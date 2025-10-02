@@ -213,17 +213,10 @@ class WebUI(LoggerMixin):
         def api_logs():
             """Get recent log entries."""
             try:
-                # Try to read recent log entries
-                log_file = Path("transcription_app.log")
-                if log_file.exists():
-                    with open(log_file, 'r') as f:
-                        lines = f.readlines()
-                        # Get last 50 lines
-                        recent_lines = lines[-50:] if len(lines) > 50 else lines
-                        return jsonify({'logs': recent_lines})
-                else:
-                    return jsonify({'logs': ['No log file found']})
+                logs = self._get_recent_logs()
+                return jsonify({'logs': logs})
             except Exception as e:
+                self.logger.error(f"Error reading logs: {e}")
                 return jsonify({'logs': [f'Error reading logs: {e}']})
         
         @self.flask_app.route('/api/upload', methods=['POST'])
@@ -388,6 +381,46 @@ class WebUI(LoggerMixin):
         except Exception as e:
             self.logger.error(f"Error uploading to Google Docs for {target_date}: {e}")
             return False
+    
+    def _get_recent_logs(self) -> List[str]:
+        """Get recent log entries from the log file."""
+        try:
+            # Find log file in the correct location
+            log_dir = self.app_instance.config.get_storage_paths()['base'] / 'logs'
+            log_file = log_dir / 'transcription_app.log'
+            
+            if not log_file.exists():
+                # Try fallback locations
+                fallback_locations = [
+                    Path("transcription_app.log"),
+                    Path("logs/transcription_app.log"),
+                    Path("transcripts/logs/transcription_app.log")
+                ]
+                
+                for fallback in fallback_locations:
+                    if fallback.exists():
+                        log_file = fallback
+                        break
+                else:
+                    return [f"No log file found. Expected at: {log_file}"]
+            
+            with open(log_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                # Get last 100 lines for better visibility
+                recent_lines = lines[-100:] if len(lines) > 100 else lines
+                
+                # Clean up lines and add some formatting
+                formatted_lines = []
+                for line in recent_lines:
+                    line = line.strip()
+                    if line:
+                        formatted_lines.append(line)
+                
+                return formatted_lines
+                
+        except Exception as e:
+            self.logger.error(f"Error reading log file: {e}")
+            return [f"Error reading log file: {e}"]
     
     def _get_uptime(self) -> str:
         """Get application uptime."""
@@ -610,6 +643,7 @@ class WebUI(LoggerMixin):
         <div class="controls">
             <button class="btn btn-warning" onclick="pauseRecording()">⏸️ Pause Recording</button>
             <button class="btn btn-success" onclick="resumeRecording()">▶️ Resume Recording</button>
+            <button class="btn btn-secondary" onclick="testAudio()">🎤 Test Audio Levels</button>
             <button class="btn btn-primary" onclick="forceTranscribe()">🔄 Process Audio Now</button>
             <button class="btn btn-primary" onclick="forceSummary()">📝 Generate Summary</button>
             <button class="btn btn-primary" onclick="generateDailyTranscript()">📋 Generate Daily Transcript</button>
@@ -648,8 +682,15 @@ class WebUI(LoggerMixin):
             </div>
         </div>
         
-        <div>
-            <h3>Recent Logs</h3>
+        <div class="card">
+            <h3>🔧 Debug Information</h3>
+            <div id="debug-info" style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px;">
+                Loading debug info...
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>📋 Recent Logs</h3>
             <div class="logs" id="logs">Loading logs...</div>
         </div>
     </div>
@@ -690,6 +731,45 @@ class WebUI(LoggerMixin):
                     
                     document.getElementById('total-transcribed').textContent = 
                         data.total_transcribed || 0;
+                    
+                    // Update debug information
+                    if (data.audio_config) {
+                        const debugInfo = document.getElementById('debug-info');
+                        let audioLevelsHtml = '';
+                        
+                        if (data.audio_levels && data.audio_levels.samples > 0) {
+                            const current = data.audio_levels.current.toFixed(4);
+                            const average = data.audio_levels.average.toFixed(4);
+                            const maximum = data.audio_levels.maximum.toFixed(4);
+                            const threshold = data.audio_levels.threshold.toFixed(4);
+                            const aboveThreshold = data.audio_levels.current > data.audio_levels.threshold;
+                            
+                            audioLevelsHtml = `
+                                <strong>🎤 Live Audio Levels:</strong><br>
+                                Current: ${current} ${aboveThreshold ? '🟢' : '🔴'}<br>
+                                Average: ${average}<br>
+                                Maximum: ${maximum}<br>
+                                Threshold: ${threshold}<br>
+                                Samples: ${data.audio_levels.samples}<br>
+                                <br>
+                            `;
+                        }
+                        
+                        debugInfo.innerHTML = audioLevelsHtml + `
+                            <strong>Audio Configuration:</strong><br>
+                            Silence Threshold: ${data.audio_config.silence_threshold}<br>
+                            Silence Duration: ${data.audio_config.silence_duration}s<br>
+                            Min Audio Duration: ${data.audio_config.min_audio_duration}s<br>
+                            Noise Gate Threshold: ${data.audio_config.noise_gate_threshold}<br>
+                            Sample Rate: ${data.audio_config.sample_rate}Hz<br>
+                            Channels: ${data.audio_config.channels}<br>
+                            <br>
+                            <strong>System Status:</strong><br>
+                            Log Level: ${data.log_level}<br>
+                            Google Docs: ${data.google_docs_enabled ? 'Enabled' : 'Disabled'}<br>
+                            Daily Transcripts: ${data.daily_transcript_dates ? data.daily_transcript_dates.length : 0} dates
+                        `;
+                    }
                 })
                 .catch(error => {
                     console.error('Error fetching status:', error);
@@ -702,11 +782,18 @@ class WebUI(LoggerMixin):
                 .then(response => response.json())
                 .then(data => {
                     const logsElement = document.getElementById('logs');
-                    logsElement.textContent = data.logs.join('');
-                    logsElement.scrollTop = logsElement.scrollHeight;
+                    if (data.logs && data.logs.length > 0) {
+                        // Join logs with newlines and show recent entries
+                        logsElement.textContent = data.logs.join('\n');
+                        logsElement.scrollTop = logsElement.scrollHeight;
+                    } else {
+                        logsElement.textContent = 'No logs available or log file not found.\nCheck if the application is running and generating logs.';
+                    }
                 })
                 .catch(error => {
                     console.error('Error fetching logs:', error);
+                    const logsElement = document.getElementById('logs');
+                    logsElement.textContent = `Error fetching logs: ${error}\nMake sure the application is running.`;
                 });
         }
         
@@ -749,6 +836,12 @@ class WebUI(LoggerMixin):
         
         function resumeRecording() {
             controlAction('resume');
+        }
+        
+        function testAudio() {
+            showMessage('Audio test: Speak now and watch the debug section for live audio levels!', 'info');
+            // Force an immediate status update to show current levels
+            updateStatus();
         }
         
         function forceTranscribe() {

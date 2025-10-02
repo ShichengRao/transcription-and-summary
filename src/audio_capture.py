@@ -50,6 +50,11 @@ class AudioCapture(LoggerMixin):
         self._silence_start: Optional[float] = None
         self._last_audio_time: Optional[float] = None
         
+        # Audio level monitoring for debugging
+        self._last_debug_log: Optional[float] = None
+        self._audio_level_history: List[float] = []
+        self._max_recent_level: float = 0.0
+        
         self.logger.info(f"AudioCapture initialized with output dir: {output_dir}")
     
     def set_segment_callback(self, callback: Callable[[AudioSegment], None]) -> None:
@@ -69,7 +74,12 @@ class AudioCapture(LoggerMixin):
         self._record_thread = threading.Thread(target=self._record_loop, daemon=True)
         self._record_thread.start()
         
-        self.logger.info("Audio recording started")
+        self.logger.info(f"Audio recording started with config:")
+        self.logger.info(f"  Sample rate: {self.config.sample_rate}")
+        self.logger.info(f"  Channels: {self.config.channels}")
+        self.logger.info(f"  Silence threshold: {self.config.silence_threshold}")
+        self.logger.info(f"  Silence duration: {self.config.silence_duration}s")
+        self.logger.info(f"  Min audio duration: {getattr(self.config, 'min_audio_duration', 'N/A')}s")
     
     def stop_recording(self) -> None:
         """Stop audio recording and save any remaining buffer."""
@@ -120,6 +130,28 @@ class AudioCapture(LoggerMixin):
     def is_recording(self) -> bool:
         """Check if currently recording."""
         return self._recording and not self._paused
+    
+    def get_audio_levels(self) -> Dict[str, float]:
+        """Get current audio level information for debugging."""
+        if not self._audio_level_history:
+            return {
+                'current': 0.0,
+                'average': 0.0,
+                'maximum': 0.0,
+                'threshold': self.config.silence_threshold
+            }
+        
+        current = self._audio_level_history[-1] if self._audio_level_history else 0.0
+        average = sum(self._audio_level_history) / len(self._audio_level_history)
+        maximum = max(self._audio_level_history)
+        
+        return {
+            'current': current,
+            'average': average,
+            'maximum': maximum,
+            'threshold': self.config.silence_threshold,
+            'samples': len(self._audio_level_history)
+        }
     
     def get_completed_segments(self) -> List[AudioSegment]:
         """Get all completed audio segments from the queue."""
@@ -198,13 +230,28 @@ class AudioCapture(LoggerMixin):
         # Calculate RMS (root mean square) for volume detection
         rms = np.sqrt(np.mean(audio_data ** 2))
         
-        # Use a slightly higher threshold for silence detection to avoid false positives
-        effective_threshold = self.config.silence_threshold * 1.2
+        # Use the configured silence threshold directly
+        effective_threshold = self.config.silence_threshold
+        
+        # Track audio levels for debugging
+        self._audio_level_history.append(rms)
+        if len(self._audio_level_history) > 100:  # Keep last 100 samples
+            self._audio_level_history.pop(0)
+        
+        # Update max recent level
+        self._max_recent_level = max(self._audio_level_history)
+        
+        # Log audio levels periodically for debugging
+        if self._last_debug_log is None or current_time - self._last_debug_log > 5:  # Every 5 seconds
+            avg_level = sum(self._audio_level_history) / len(self._audio_level_history)
+            self.logger.info(f"Audio levels - Current: {rms:.4f}, Avg: {avg_level:.4f}, Max: {self._max_recent_level:.4f}, Threshold: {effective_threshold:.4f}")
+            self._last_debug_log = current_time
         
         if rms > effective_threshold:
             # Audio detected - reset silence timer
             self._silence_start = None
             self._last_audio_time = current_time
+            self.logger.debug(f"Audio detected: RMS={rms:.4f} > {effective_threshold:.4f}")
         else:
             # Potential silence detected
             if self._silence_start is None:
@@ -321,12 +368,13 @@ class AudioCapture(LoggerMixin):
                     above_threshold_chunks += 1
                 total_chunks += 1
         
-        # Require at least 20% of chunks to be above threshold
+        # Require at least 10% of chunks to be above threshold (reduced from 20%)
         if total_chunks == 0:
             return False
         
         content_ratio = above_threshold_chunks / total_chunks
-        return content_ratio >= 0.2
+        self.logger.debug(f"Audio content analysis: {above_threshold_chunks}/{total_chunks} chunks above threshold ({content_ratio:.1%})")
+        return content_ratio >= 0.1
     
     def get_available_devices(self) -> List[dict]:
         """Get list of available audio input devices."""
