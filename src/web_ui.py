@@ -219,7 +219,7 @@ class WebUI(LoggerMixin):
         
         @self.flask_app.route('/api/upload', methods=['POST'])
         def api_upload():
-            \"\"\"Handle audio file uploads.\"\"\"
+            """Handle audio file uploads."""
             try:
                 if 'audio_file' not in request.files:
                     return jsonify({'success': False, 'message': 'No audio file provided'})
@@ -234,14 +234,14 @@ class WebUI(LoggerMixin):
                 if result['success']:
                     return jsonify({
                         'success': True, 
-                        'message': f\"Audio file processed successfully: {result['transcript_preview']}\",
+                        'message': f"Audio file processed successfully: {result['transcript_preview']}",
                         'transcript_length': result['transcript_length']
                     })
                 else:
                     return jsonify({'success': False, 'message': result['error']})
                     
             except Exception as e:
-                self.logger.error(f\"Error processing uploaded file: {e}\")
+                self.logger.error(f"Error processing uploaded file: {e}")
                 return jsonify({'success': False, 'message': str(e)})
     
     def _force_transcribe(self) -> None:
@@ -708,15 +708,15 @@ class WebUI(LoggerMixin):
         // Start updating status and logs
         updateStatus();
         updateLogs();
-        statusInterval = setInterval(updateStatus, 5000); // Update every 5 seconds
-        setInterval(updateLogs, 10000); // Update logs every 10 seconds
+        statusInterval = setInterval(updateStatus, 30000); // Update every 30 seconds
+        setInterval(updateLogs, 60000); // Update logs every 60 seconds
     </script>
 </body>
 </html>
         '''
     
     def _process_uploaded_audio(self, file) -> Dict[str, Any]:
-        \"\"\"Process an uploaded audio file.\"\"\"
+        """Process an uploaded audio file."""
         try:
             import tempfile
             import os
@@ -769,11 +769,11 @@ class WebUI(LoggerMixin):
                     temp_path.unlink()
                     
         except Exception as e:
-            self.logger.error(f\"Error processing uploaded audio: {e}\")
+            self.logger.error(f"Error processing uploaded audio: {e}")
             return {'success': False, 'error': str(e)}
     
     def _extract_timestamp_from_filename(self, filename: str) -> datetime:
-        \"\"\"Extract timestamp from filename or return current time.\"\"\"
+        """Extract timestamp from filename or return current time."""
         import re
         from datetime import datetime
         
@@ -798,28 +798,28 @@ class WebUI(LoggerMixin):
                 try:
                     if len(groups) == 4:  # Date + hour:minute
                         date_str, hour, minute = groups[0], groups[1], groups[2]
-                        return datetime.strptime(f\"{date_str} {hour}:{minute}:00\", \"%Y-%m-%d %H:%M:%S\")
+                        return datetime.strptime(f"{date_str} {hour}:{minute}:00", "%Y-%m-%d %H:%M:%S")
                     elif len(groups) == 5:  # Date + hour:minute:second
                         date_str, hour, minute, second = groups[0], groups[1], groups[2], groups[3]
-                        return datetime.strptime(f\"{date_str} {hour}:{minute}:{second}\", \"%Y-%m-%d %H:%M:%S\")
+                        return datetime.strptime(f"{date_str} {hour}:{minute}:{second}", "%Y-%m-%d %H:%M:%S")
                     elif len(groups) == 1:  # Date only
                         date_str = groups[0]
-                        return datetime.strptime(f\"{date_str} 12:00:00\", \"%Y-%m-%d %H:%M:%S\")
+                        return datetime.strptime(f"{date_str} 12:00:00", "%Y-%m-%d %H:%M:%S")
                     elif len(groups) == 6:  # YYYYMMDD_HHMMSS
                         year, month, day, hour, minute, second = groups
-                        return datetime.strptime(f\"{year}-{month}-{day} {hour}:{minute}:{second}\", \"%Y-%m-%d %H:%M:%S\")
+                        return datetime.strptime(f"{year}-{month}-{day} {hour}:{minute}:{second}", "%Y-%m-%d %H:%M:%S")
                     elif len(groups) == 5:  # YYYYMMDD_HHMM
                         year, month, day, hour, minute = groups
-                        return datetime.strptime(f\"{year}-{month}-{day} {hour}:{minute}:00\", \"%Y-%m-%d %H:%M:%S\")
+                        return datetime.strptime(f"{year}-{month}-{day} {hour}:{minute}:00", "%Y-%m-%d %H:%M:%S")
                 except ValueError:
                     continue
         
         # If no pattern matches, use current time
-        self.logger.info(f\"Could not extract timestamp from filename '{filename}', using current time\")
+        self.logger.info(f"Could not extract timestamp from filename '{filename}', using current time")
         return datetime.now()
     
     def _create_audio_segment_from_file(self, file_path: Path, timestamp: datetime) -> Optional['AudioSegment']:
-        \"\"\"Create an AudioSegment from an uploaded file.\"\"\"
+        """Create an AudioSegment from an uploaded file."""
         try:
             from .audio_capture import AudioSegment
             import subprocess
@@ -842,7 +842,7 @@ class WebUI(LoggerMixin):
                 
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
-                    self.logger.error(f\"FFmpeg conversion failed: {result.stderr}\")
+                    self.logger.error(f"FFmpeg conversion failed: {result.stderr}")
                     return None
                 
                 source_path = wav_path
@@ -857,7 +857,7 @@ class WebUI(LoggerMixin):
             audio_dir.mkdir(parents=True, exist_ok=True)
             
             # Generate filename
-            filename = f\"uploaded_{timestamp.strftime('%Y%m%d_%H%M%S')}.wav\"
+            filename = f"uploaded_{timestamp.strftime('%Y%m%d_%H%M%S')}.wav"
             final_path = audio_dir / filename
             
             # Move file to audio directory
@@ -873,15 +873,15 @@ class WebUI(LoggerMixin):
                 sample_rate=16000
             )
             
-            self.logger.info(f\"Created audio segment from uploaded file: {filename} ({duration:.1f}s)\")
+            self.logger.info(f"Created audio segment from uploaded file: {filename} ({duration:.1f}s)")
             return audio_segment
             
         except Exception as e:
-            self.logger.error(f\"Error creating audio segment from file: {e}\")
+            self.logger.error(f"Error creating audio segment from file: {e}")
             return None
     
     def _get_audio_duration(self, file_path: Path) -> float:
-        \"\"\"Get audio file duration in seconds.\"\"\"
+        """Get audio file duration in seconds."""
         try:
             import subprocess
             
@@ -901,7 +901,7 @@ class WebUI(LoggerMixin):
                 return file_size / 32000  # Rough estimate for 16kHz mono
                 
         except Exception as e:
-            self.logger.error(f\"Error getting audio duration: {e}\")
+            self.logger.error(f"Error getting audio duration: {e}")
             # Fallback: estimate from file size
             file_size = file_path.stat().st_size
             return file_size / 32000
