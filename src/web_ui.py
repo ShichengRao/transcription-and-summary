@@ -994,16 +994,16 @@ class WebUI(LoggerMixin):
                     const logsElement = document.getElementById('logs');
                     if (data.logs && data.logs.length > 0) {
                         // Join logs with newlines and show recent entries
-                        logsElement.textContent = data.logs.join('\n');
+                        logsElement.textContent = data.logs.join('\\n');
                         logsElement.scrollTop = logsElement.scrollHeight;
                     } else {
-                        logsElement.textContent = 'No logs available or log file not found.\nCheck if the application is running and generating logs.';
+                        logsElement.textContent = 'No logs available or log file not found.\\nCheck if the application is running and generating logs.';
                     }
                 })
                 .catch(error => {
                     console.error('Error fetching logs:', error);
                     const logsElement = document.getElementById('logs');
-                    logsElement.textContent = 'Error fetching logs: ' + error + '\nMake sure the application is running.\nCheck browser console for details.';
+                    logsElement.textContent = 'Error fetching logs: ' + error + '\\nMake sure the application is running.\\nCheck browser console for details.';
                 });
         }
         
