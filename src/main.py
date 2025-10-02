@@ -116,8 +116,19 @@ def main():
         
         # Keep the application running
         try:
+            logger.info("Application is running. Monitoring status...")
             while app.is_running():
-                time.sleep(1)
+                time.sleep(5)  # Check every 5 seconds instead of 1
+                # Periodically log status for debugging
+                if hasattr(app, 'diagnose_services'):
+                    try:
+                        diagnosis = app.diagnose_services()
+                        if not diagnosis.get('services', {}).get('transcription', {}).get('processing', False):
+                            logger.warning("Transcription service not processing!")
+                        if not diagnosis.get('services', {}).get('audio', {}).get('recording', False):
+                            logger.warning("Audio capture not recording!")
+                    except Exception as diag_error:
+                        logger.error(f"Error during diagnosis: {diag_error}")
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received")
         

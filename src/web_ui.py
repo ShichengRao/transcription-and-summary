@@ -41,6 +41,12 @@ class WebUI(LoggerMixin):
         self.flask_app = Flask(__name__)
         self.flask_app.secret_key = "transcription_app_secret"
         
+        # Add basic error handler
+        @self.flask_app.errorhandler(500)
+        def internal_error(error):
+            self.logger.error(f"Internal server error: {error}")
+            return jsonify({'error': 'Internal server error', 'details': str(error)}), 500
+        
         # Status tracking
         self.last_heartbeat = datetime.now()
         self.heartbeat_thread: Optional[threading.Thread] = None
@@ -94,12 +100,24 @@ class WebUI(LoggerMixin):
                 )
                 self.logger.warning("Using Flask development server (install waitress for production)")
             
+            self.logger.info("Starting web server thread...")
             server_thread.start()
             
             # Give Flask a moment to start
-            time.sleep(1)
+            self.logger.info("Waiting for web server to start...")
+            time.sleep(2)
             
-            self.logger.info(f"Web UI started at http://{self.host}:{self.port}")
+            self.logger.info(f"Web UI should be available at http://{self.host}:{self.port}")
+            
+            # Test if server is responding
+            try:
+                import urllib.request
+                test_url = f"http://{self.host}:{self.port}/api/test"
+                response = urllib.request.urlopen(test_url, timeout=5)
+                self.logger.info(f"Web server test successful: {response.getcode()}")
+            except Exception as test_error:
+                self.logger.error(f"Web server test failed: {test_error}")
+                self.logger.warning("Web server may not be responding properly")
             
         except Exception as e:
             self.logger.error(f"Failed to start web UI: {e}")
@@ -114,8 +132,10 @@ class WebUI(LoggerMixin):
         """Update heartbeat every minute."""
         while self.running:
             try:
-                if hasattr(self.app_instance, 'is_recording') and self.app_instance.is_recording():
+                # Always update heartbeat if app is running
+                if hasattr(self.app_instance, 'is_running') and self.app_instance.is_running():
                     self.last_heartbeat = datetime.now()
+                    self.logger.debug("Heartbeat updated")
             except Exception as e:
                 self.logger.error(f"Error in heartbeat loop: {e}")
             time.sleep(60)  # Update every minute
@@ -128,25 +148,63 @@ class WebUI(LoggerMixin):
             """Main dashboard."""
             return render_template_string(self._get_main_template())
         
+        @self.flask_app.route('/api/test')
+        def api_test():
+            """Simple test endpoint."""
+            self.logger.info("Test API endpoint called")
+            return jsonify({
+                'status': 'ok', 
+                'message': 'Web UI is working',
+                'timestamp': datetime.now().isoformat(),
+                'app_running': hasattr(self.app_instance, 'is_running') and self.app_instance.is_running()
+            })
+        
+        @self.flask_app.route('/api/diagnose')
+        def api_diagnose():
+            """Diagnostic endpoint."""
+            try:
+                self.logger.info("Diagnose API endpoint called")
+                if hasattr(self.app_instance, 'diagnose_services'):
+                    diagnosis = self.app_instance.diagnose_services()
+                    return jsonify(diagnosis)
+                else:
+                    return jsonify({'error': 'Diagnose method not available'})
+            except Exception as e:
+                self.logger.error(f"Error in diagnose API: {e}")
+                return jsonify({'error': str(e)})
+        
         @self.flask_app.route('/api/status')
         def api_status():
             """Get current status as JSON."""
-            status = self.app_instance.get_status()
-            
-            # Add UI-specific status
-            status.update({
-                'last_heartbeat': self.last_heartbeat.isoformat(),
-                'heartbeat_ago': (datetime.now() - self.last_heartbeat).total_seconds(),
-                'current_time': datetime.now().isoformat(),
-                'uptime': self._get_uptime()
-            })
-            
-            return jsonify(status)
+            try:
+                self.logger.debug("Status API called")
+                status = self.app_instance.get_status()
+                self.logger.debug(f"Got status from app: {status}")
+                
+                # Add UI-specific status
+                status.update({
+                    'last_heartbeat': self.last_heartbeat.isoformat(),
+                    'heartbeat_ago': (datetime.now() - self.last_heartbeat).total_seconds(),
+                    'current_time': datetime.now().isoformat(),
+                    'uptime': self._get_uptime()
+                })
+                
+                self.logger.debug(f"Returning status: {status}")
+                return jsonify(status)
+            except Exception as e:
+                self.logger.error(f"Error in status API: {e}")
+                return jsonify({
+                    'error': str(e),
+                    'running': False,
+                    'paused': False,
+                    'recording': False
+                })
         
         @self.flask_app.route('/api/control/<action>', methods=['POST'])
         def api_control(action):
             """Control the application."""
             try:
+                self.logger.info(f"Control API called with action: {action}")
                 if action == 'pause':
                     self.app_instance.pause()
                     return jsonify({'success': True, 'message': 'Recording paused'})
@@ -699,9 +757,14 @@ class WebUI(LoggerMixin):
         let statusInterval;
         
         function updateStatus() {
+            console.log('Fetching status...');
             fetch('/api/status')
-                .then(response => response.json())
+                .then(response => {
+                    console.log('Status response:', response.status);
+                    return response.json();
+                })
                 .then(data => {
+                    console.log('Status data:', data);
                     // Update recording status
                     const recordingCard = document.getElementById('recording-status');
                     const recordingValue = document.getElementById('recording-value');
@@ -773,14 +836,19 @@ class WebUI(LoggerMixin):
                 })
                 .catch(error => {
                     console.error('Error fetching status:', error);
-                    showMessage('Error fetching status', 'error');
+                    showMessage('Error fetching status - check console', 'error');
                 });
         }
         
         function updateLogs() {
+            console.log('Fetching logs...');
             fetch('/api/logs')
-                .then(response => response.json())
+                .then(response => {
+                    console.log('Logs response:', response.status);
+                    return response.json();
+                })
                 .then(data => {
+                    console.log('Logs data length:', data.logs ? data.logs.length : 0);
                     const logsElement = document.getElementById('logs');
                     if (data.logs && data.logs.length > 0) {
                         // Join logs with newlines and show recent entries
@@ -793,7 +861,7 @@ class WebUI(LoggerMixin):
                 .catch(error => {
                     console.error('Error fetching logs:', error);
                     const logsElement = document.getElementById('logs');
-                    logsElement.textContent = `Error fetching logs: ${error}\nMake sure the application is running.`;
+                    logsElement.textContent = `Error fetching logs: ${error}\nMake sure the application is running.\nCheck browser console for details.`;
                 });
         }
         
