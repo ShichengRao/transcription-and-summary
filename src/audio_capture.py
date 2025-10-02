@@ -192,18 +192,21 @@ class AudioCapture(LoggerMixin):
         self._update_silence_detection(audio_data)
     
     def _update_silence_detection(self, audio_data: np.ndarray) -> None:
-        """Update silence detection state."""
+        """Update silence detection state with improved noise filtering."""
         current_time = time.time()
         
         # Calculate RMS (root mean square) for volume detection
         rms = np.sqrt(np.mean(audio_data ** 2))
         
-        if rms > self.config.silence_threshold:
-            # Audio detected
+        # Use a slightly higher threshold for silence detection to avoid false positives
+        effective_threshold = self.config.silence_threshold * 1.2
+        
+        if rms > effective_threshold:
+            # Audio detected - reset silence timer
             self._silence_start = None
             self._last_audio_time = current_time
         else:
-            # Silence detected
+            # Potential silence detected
             if self._silence_start is None:
                 self._silence_start = current_time
     
@@ -234,10 +237,17 @@ class AudioCapture(LoggerMixin):
         if len(audio_data) == 0:
             return
         
-        # Check minimum duration (avoid very short segments)
+        # Check minimum duration and audio quality
         duration = len(audio_data) / self.config.sample_rate
-        if duration < 1.0:  # Minimum 1 second
+        min_duration = getattr(self.config, 'min_audio_duration', 2.0)
+        
+        if duration < min_duration:
             self.logger.debug(f"Skipping short audio segment ({duration:.1f}s)")
+            return
+        
+        # Check if audio has sufficient non-silence content
+        if not self._has_sufficient_audio_content(audio_data):
+            self.logger.debug(f"Skipping low-content audio segment ({duration:.1f}s)")
             return
         
         # Generate filename with timestamp
@@ -284,6 +294,39 @@ class AudioCapture(LoggerMixin):
             # Clean up file if it was partially created
             if file_path.exists():
                 file_path.unlink()
+    
+    def _has_sufficient_audio_content(self, audio_data: np.ndarray) -> bool:
+        """Check if audio data has sufficient non-silence content to be worth transcribing."""
+        # Calculate RMS for the entire segment
+        rms = np.sqrt(np.mean(audio_data ** 2))
+        
+        # Use noise gate threshold if available, otherwise use silence threshold
+        noise_threshold = getattr(self.config, 'noise_gate_threshold', self.config.silence_threshold)
+        
+        # Check if overall RMS is above noise threshold
+        if rms < noise_threshold:
+            return False
+        
+        # Check what percentage of the audio is above the threshold
+        # Split into small chunks and count how many are above threshold
+        chunk_size = int(self.config.sample_rate * 0.1)  # 100ms chunks
+        above_threshold_chunks = 0
+        total_chunks = 0
+        
+        for i in range(0, len(audio_data), chunk_size):
+            chunk = audio_data[i:i + chunk_size]
+            if len(chunk) > 0:
+                chunk_rms = np.sqrt(np.mean(chunk ** 2))
+                if chunk_rms > noise_threshold:
+                    above_threshold_chunks += 1
+                total_chunks += 1
+        
+        # Require at least 20% of chunks to be above threshold
+        if total_chunks == 0:
+            return False
+        
+        content_ratio = above_threshold_chunks / total_chunks
+        return content_ratio >= 0.2
     
     def get_available_devices(self) -> List[dict]:
         """Get list of available audio input devices."""

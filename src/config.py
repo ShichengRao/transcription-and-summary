@@ -15,8 +15,10 @@ class AudioConfig:
     chunk_duration: int = 300  # 5 minutes in seconds
     format: str = "wav"
     device_id: Optional[int] = None
-    silence_threshold: float = 0.01
-    silence_duration: float = 2.0  # seconds of silence before stopping
+    silence_threshold: float = 0.05  # Increased from 0.01 to reduce ambient noise sensitivity
+    silence_duration: float = 3.0  # Increased from 2.0 to 3.0 seconds for better noise filtering
+    min_audio_duration: float = 2.0  # Minimum duration for audio segments to be processed
+    noise_gate_threshold: float = 0.03  # Additional noise gate threshold
 
 
 @dataclass
