@@ -298,7 +298,7 @@ Respond only with valid JSON.
 """
         return prompt
     
-    def _create_fallback_analysis(self, transcript_text: str, ai_response: str) -> Dict[str, Any]:
+    def _create_fallback_analysis(self, transcript_text: str, ai_response: str = "") -> Dict[str, Any]:
         """Create a basic analysis when AI parsing fails."""
         words = transcript_text.split()
         word_count = len(words)
@@ -316,8 +316,14 @@ Respond only with valid JSON.
         top_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:10]
         key_topics = [word for word, freq in top_words if freq > 1]
         
+        # Use AI response if available, otherwise create generic summary
+        if ai_response:
+            summary_text = ai_response[:200] + "..." if len(ai_response) > 200 else ai_response
+        else:
+            summary_text = f"Daily transcript containing {word_count} words covering various topics and conversations."
+        
         return {
-            "summary": ai_response[:200] + "..." if len(ai_response) > 200 else ai_response,
+            "summary": summary_text,
             "summary_first_person": "I had various conversations and activities today. The transcript contains my daily interactions and thoughts.",
             "key_topics": key_topics[:5],
             "action_items": [],

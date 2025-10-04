@@ -114,23 +114,14 @@ class GoogleDocsService(LoggerMixin):
             
             self._credentials = creds
             
-            # Create HTTP client with SSL configuration
-            http_client = self._create_http_client()
-            
-            # Build service objects with custom HTTP client
+            # Build service objects - use default client (credentials parameter handles auth)
+            # Note: http and credentials parameters are mutually exclusive
             try:
-                if http_client:
-                    self._docs_service = build('docs', 'v1', credentials=creds, http=http_client)
-                    self._drive_service = build('drive', 'v3', credentials=creds, http=http_client)
-                else:
-                    # Fallback to default
-                    self._docs_service = build('docs', 'v1', credentials=creds)
-                    self._drive_service = build('drive', 'v3', credentials=creds)
-            except Exception as ssl_error:
-                self.logger.warning(f"SSL error with custom client, trying default: {ssl_error}")
-                # Fallback to default client
                 self._docs_service = build('docs', 'v1', credentials=creds)
                 self._drive_service = build('drive', 'v3', credentials=creds)
+            except Exception as build_error:
+                self.logger.error(f"Error building Google API services: {build_error}")
+                return False
             
             self.logger.info("Google APIs authenticated successfully")
             return True
