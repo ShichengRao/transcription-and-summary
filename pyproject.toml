@@ -63,6 +63,10 @@ exclude = [
     "venv",
 ]
 
+[tool.bandit]
+exclude_dirs = ["tests", "transcripts", "backups", ".venv", "venv"]
+skips = ["B101", "B601"]
+
 [build-system]
 requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"

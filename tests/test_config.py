@@ -1,16 +1,17 @@
 """Tests for configuration module."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 import yaml
 
 from src.config import (
     AppConfig,
     AudioConfig,
-    TranscriptionConfig,
-    SummaryConfig,
     GoogleDocsConfig,
     StorageConfig,
+    SummaryConfig,
+    TranscriptionConfig,
     UIConfig,
 )
 
@@ -122,9 +123,7 @@ class TestTranscriptionConfig:
 
     def test_custom_provider(self):
         """Test custom transcription provider."""
-        config = TranscriptionConfig(
-            provider="openai_api", model_size="large", language="es"
-        )
+        config = TranscriptionConfig(provider="openai_api", model_size="large", language="es")
         assert config.provider == "openai_api"
         assert config.model_size == "large"
         assert config.language == "es"

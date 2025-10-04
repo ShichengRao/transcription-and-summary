@@ -1,16 +1,26 @@
-.PHONY: help install test lint format clean all
+.PHONY: help install test lint format clean all pre-commit-install pre-commit-run
 
 help:
 	@echo "Available commands:"
-	@echo "  make install    - Install dependencies"
-	@echo "  make test       - Run tests with pytest"
-	@echo "  make lint       - Run linters (flake8, pylint)"
-	@echo "  make format     - Format code with black and isort"
-	@echo "  make clean      - Clean up generated files"
-	@echo "  make all        - Format, lint, and test"
+	@echo "  make install            - Install dependencies"
+	@echo "  make test               - Run tests with pytest"
+	@echo "  make lint               - Run linters (flake8, pylint)"
+	@echo "  make format             - Format code with black and isort"
+	@echo "  make pre-commit-install - Install pre-commit hooks"
+	@echo "  make pre-commit-run     - Run pre-commit on all files"
+	@echo "  make clean              - Clean up generated files"
+	@echo "  make all                - Format, lint, and test"
 
 install:
 	pip install -r requirements.txt
+	pre-commit install
+
+pre-commit-install:
+	pre-commit install
+	@echo "Pre-commit hooks installed successfully!"
+
+pre-commit-run:
+	pre-commit run --all-files
 
 test:
 	pytest tests/ -v --tb=short

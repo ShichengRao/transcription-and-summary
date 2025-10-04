@@ -1,18 +1,19 @@
 """Pytest configuration and fixtures."""
 
-import pytest
-from pathlib import Path
-import tempfile
 import shutil
-from datetime import datetime, date
+import tempfile
+from datetime import date, datetime
+from pathlib import Path
+
+import pytest
 
 from src.config import (
     AppConfig,
     AudioConfig,
-    TranscriptionConfig,
-    SummaryConfig,
     GoogleDocsConfig,
     StorageConfig,
+    SummaryConfig,
+    TranscriptionConfig,
     UIConfig,
 )
 
@@ -98,9 +99,11 @@ def sample_audio_data():
 @pytest.fixture
 def mock_audio_segment(temp_dir):
     """Create a mock audio segment for testing."""
-    from src.audio_capture import AudioSegment
     import wave
+
     import numpy as np
+
+    from src.audio_capture import AudioSegment
 
     # Create a test audio file
     audio_file = temp_dir / "test_audio.wav"

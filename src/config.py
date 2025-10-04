@@ -1,15 +1,17 @@
 """Configuration management for the transcription and summary application."""
 
 import os
-import yaml
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Any, Optional
-from dataclasses import dataclass, asdict
+from typing import Any, Dict, Optional
+
+import yaml
 
 
 @dataclass
 class AudioConfig:
     """Audio recording configuration."""
+
     sample_rate: int = 16000
     channels: int = 1
     chunk_duration: int = 300  # 5 minutes in seconds
@@ -24,6 +26,7 @@ class AudioConfig:
 @dataclass
 class TranscriptionConfig:
     """Transcription engine configuration."""
+
     provider: str = "local"  # local, openai_api, disabled
     model_size: str = "base"  # tiny, base, small, medium, large
     language: str = "en"
@@ -36,8 +39,11 @@ class TranscriptionConfig:
 @dataclass
 class SummaryConfig:
     """Summary generation configuration."""
+
     provider: str = "openai"  # openai, claude, local
-    model: str = "gpt-3.5-turbo"  # For OpenAI: gpt-3.5-turbo, gpt-4, etc. For Claude: claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229
+    model: str = (
+        "gpt-3.5-turbo"  # For OpenAI: gpt-3.5-turbo, gpt-4, etc. For Claude: claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229
+    )
     max_tokens: int = 500
     temperature: float = 0.3
     daily_summary: bool = True
@@ -48,6 +54,7 @@ class SummaryConfig:
 @dataclass
 class GoogleDocsConfig:
     """Google Docs integration configuration."""
+
     enabled: bool = True
     credentials_path: str = "credentials.json"
     token_path: str = "token.json"
@@ -58,6 +65,7 @@ class GoogleDocsConfig:
 @dataclass
 class StorageConfig:
     """Local storage configuration."""
+
     base_dir: str = "transcripts"
     audio_dir: str = "audio"
     transcript_dir: str = "transcripts"
@@ -70,6 +78,7 @@ class StorageConfig:
 @dataclass
 class UIConfig:
     """User interface configuration."""
+
     system_tray: bool = True
     auto_start: bool = True
     notifications: bool = True
@@ -81,6 +90,7 @@ class UIConfig:
 @dataclass
 class AppConfig:
     """Main application configuration."""
+
     audio: AudioConfig
     transcription: TranscriptionConfig
     summary: SummaryConfig
@@ -95,22 +105,22 @@ class AppConfig:
         """Load configuration from file or create default."""
         if config_path is None:
             config_path = "config.yaml"
-        
+
         config_file = Path(config_path)
-        
+
         if config_file.exists():
-            with open(config_file, 'r') as f:
+            with open(config_file, "r") as f:
                 config_data = yaml.safe_load(f)
-            
+
             return cls(
-                audio=AudioConfig(**config_data.get('audio', {})),
-                transcription=TranscriptionConfig(**config_data.get('transcription', {})),
-                summary=SummaryConfig(**config_data.get('summary', {})),
-                google_docs=GoogleDocsConfig(**config_data.get('google_docs', {})),
-                storage=StorageConfig(**config_data.get('storage', {})),
-                ui=UIConfig(**config_data.get('ui', {})),
-                debug=config_data.get('debug', False),
-                log_level=config_data.get('log_level', 'INFO')
+                audio=AudioConfig(**config_data.get("audio", {})),
+                transcription=TranscriptionConfig(**config_data.get("transcription", {})),
+                summary=SummaryConfig(**config_data.get("summary", {})),
+                google_docs=GoogleDocsConfig(**config_data.get("google_docs", {})),
+                storage=StorageConfig(**config_data.get("storage", {})),
+                ui=UIConfig(**config_data.get("ui", {})),
+                debug=config_data.get("debug", False),
+                log_level=config_data.get("log_level", "INFO"),
             )
         else:
             # Create default configuration
@@ -120,7 +130,7 @@ class AppConfig:
                 summary=SummaryConfig(),
                 google_docs=GoogleDocsConfig(),
                 storage=StorageConfig(),
-                ui=UIConfig()
+                ui=UIConfig(),
             )
             default_config.save(config_path)
             return default_config
@@ -128,19 +138,19 @@ class AppConfig:
     def save(self, config_path: str = "config.yaml") -> None:
         """Save configuration to file."""
         config_dict = asdict(self)
-        
-        with open(config_path, 'w') as f:
+
+        with open(config_path, "w") as f:
             yaml.dump(config_dict, f, default_flow_style=False, indent=2)
 
     def get_storage_paths(self) -> Dict[str, Path]:
         """Get all storage paths as Path objects."""
         base = Path(self.storage.base_dir)
         return {
-            'base': base,
-            'audio': base / self.storage.audio_dir,
-            'transcripts': base / self.storage.transcript_dir,
-            'summaries': base / self.storage.summary_dir,
-            'backups': base / self.storage.backup_dir
+            "base": base,
+            "audio": base / self.storage.audio_dir,
+            "transcripts": base / self.storage.transcript_dir,
+            "summaries": base / self.storage.summary_dir,
+            "backups": base / self.storage.backup_dir,
         }
 
     def ensure_directories(self) -> None:
@@ -153,19 +163,20 @@ class AppConfig:
 def load_environment_variables() -> None:
     """Load environment variables from .env file."""
     from dotenv import load_dotenv
+
     load_dotenv()
 
 
 def get_openai_api_key() -> Optional[str]:
     """Get OpenAI API key from environment."""
-    return os.getenv('OPENAI_API_KEY')
+    return os.getenv("OPENAI_API_KEY")
 
 
 def get_claude_api_key() -> Optional[str]:
     """Get Claude API key from environment."""
-    return os.getenv('CLAUDE_API_KEY')
+    return os.getenv("CLAUDE_API_KEY")
 
 
 def get_google_credentials_path() -> str:
     """Get Google credentials path from environment or default."""
-    return os.getenv('GOOGLE_CREDENTIALS_PATH', 'credentials.json')
+    return os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
