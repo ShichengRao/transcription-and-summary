@@ -16,8 +16,8 @@ class AudioConfig:
     format: str = "wav"
     device_id: Optional[int] = None
     silence_threshold: float = 0.02  # Moderate increase from 0.01 to reduce ambient noise sensitivity
-    silence_duration: float = 2.5  # Slightly increased from 2.0 seconds for better noise filtering
-    min_audio_duration: float = 1.5  # Minimum duration for audio segments to be processed
+    silence_duration: float = 5.0  # Increased to 5 seconds to keep natural pauses in one file
+    min_audio_duration: float = 3.0  # Minimum 3 seconds to filter out very short clips
     noise_gate_threshold: float = 0.015  # Additional noise gate threshold (lower than silence_threshold)
 
 

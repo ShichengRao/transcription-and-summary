@@ -298,7 +298,7 @@ Respond only with valid JSON.
 """
         return prompt
     
-    def _create_fallback_analysis(self, transcript_text: str, ai_response: str) -> Dict[str, Any]:
+    def _create_fallback_analysis(self, transcript_text: str, ai_response: str = "") -> Dict[str, Any]:
         """Create a basic analysis when AI parsing fails."""
         words = transcript_text.split()
         word_count = len(words)
@@ -316,8 +316,14 @@ Respond only with valid JSON.
         top_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:10]
         key_topics = [word for word, freq in top_words if freq > 1]
         
+        # Use AI response if available, otherwise create generic summary
+        if ai_response:
+            summary_text = ai_response[:200] + "..." if len(ai_response) > 200 else ai_response
+        else:
+            summary_text = f"Daily transcript containing {word_count} words covering various topics and conversations."
+        
         return {
-            "summary": ai_response[:200] + "..." if len(ai_response) > 200 else ai_response,
+            "summary": summary_text,
             "summary_first_person": "I had various conversations and activities today. The transcript contains my daily interactions and thoughts.",
             "key_topics": key_topics[:5],
             "action_items": [],
@@ -491,31 +497,3 @@ Keep it concise but insightful.
         except Exception as e:
             self.logger.error(f"Error loading summary from {summary_path}: {e}")
             return None
-    
-    def _create_fallback_analysis(self, transcript_text: str) -> Dict[str, Any]:
-        """Create a basic analysis when AI services are not available."""
-        words = transcript_text.split()
-        sentences = transcript_text.split('.')
-        
-        # Extract some basic keywords (simple approach)
-        common_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'}
-        
-        word_freq = {}
-        for word in words:
-            clean_word = word.lower().strip('.,!?;:"()[]{}')
-            if len(clean_word) > 3 and clean_word not in common_words:
-                word_freq[clean_word] = word_freq.get(clean_word, 0) + 1
-        
-        # Get top keywords
-        key_topics = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:5]
-        key_topics = [word for word, count in key_topics]
-        
-        return {
-            'summary': f"Daily transcript containing {len(words)} words across {len(sentences)} sentences. Key topics discussed include: {', '.join(key_topics[:3])}.",
-            'summary_first_person': "I had various conversations and activities today. The transcript contains my daily interactions and thoughts.",
-            'key_topics': key_topics,
-            'action_items': [],
-            'meetings': [],
-            'sentiment': 'neutral',
-            'estimated_duration': len(words) * 0.5 / 60  # Rough estimate: 0.5 seconds per word
-        }

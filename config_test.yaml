@@ -4,7 +4,9 @@ audio:
   chunk_duration: 30  # 30 seconds for testing (instead of 5 minutes)
   device_id: null
   silence_threshold: 0.02  # Higher threshold to avoid false silence detection
-  silence_duration: 5.0    # Longer silence before segmenting
+  silence_duration: 5.0    # Longer silence before segmenting (keeps natural pauses in one file)
+  min_audio_duration: 3.0  # Minimum 3 seconds to filter out very short clips
+  noise_gate_threshold: 0.015  # Additional noise gate threshold
 
 transcription:
   provider: "local"
