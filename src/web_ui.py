@@ -3,13 +3,15 @@
 import json
 import threading
 import time
-import numpy as np
-from datetime import datetime, date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
+
+import numpy as np
 
 try:
-    from flask import Flask, render_template_string, jsonify, request, redirect, url_for
+    from flask import Flask, jsonify, redirect, render_template_string, request, url_for
+
     FLASK_AVAILABLE = True
 except ImportError:
     FLASK_AVAILABLE = False
@@ -17,6 +19,7 @@ except ImportError:
 
 try:
     from waitress import serve
+
     WAITRESS_AVAILABLE = True
 except ImportError:
     WAITRESS_AVAILABLE = False
@@ -27,6 +30,7 @@ from .logger import LoggerMixin
 
 class NumpyJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder to handle numpy types."""
+
     def default(self, obj):
         if isinstance(obj, np.integer):
             return int(obj)
@@ -44,160 +48,150 @@ def safe_jsonify(data):
     except TypeError:
         # Fallback: use custom encoder
         json_str = json.dumps(data, cls=NumpyJSONEncoder)
-        response = Flask.response_class(
-            json_str,
-            mimetype='application/json'
-        )
+        response = Flask.response_class(json_str, mimetype="application/json")
         return response
 
 
 class WebUI(LoggerMixin):
     """Simple web interface for monitoring and controlling the transcription app."""
-    
+
     def __init__(self, app_instance, host: str = "127.0.0.1", port: int = 8080):
         if not FLASK_AVAILABLE:
             self.logger.error("Flask not available. Install with: pip install flask")
             self.flask_app = None
             return
-            
+
         self.app_instance = app_instance
         self.host = host
         self.port = port
-        
+
         # Flask app
         self.flask_app = Flask(__name__)
         self.flask_app.secret_key = "transcription_app_secret"
-        
+
         # Add basic error handler
         @self.flask_app.errorhandler(500)
         def internal_error(error):
             self.logger.error(f"Internal server error: {error}")
-            return jsonify({'error': 'Internal server error', 'details': str(error)}), 500
-        
+            return jsonify({"error": "Internal server error", "details": str(error)}), 500
+
         # Add CORS headers for API endpoints
         @self.flask_app.after_request
         def after_request(response):
-            response.headers.add('Access-Control-Allow-Origin', '*')
-            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-            response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE')
+            response.headers.add("Access-Control-Allow-Origin", "*")
+            response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+            response.headers.add("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE")
             return response
-        
+
         # Status tracking
         self.last_heartbeat = datetime.now()
         self.heartbeat_thread: Optional[threading.Thread] = None
         self.running = False
-        
+
         # Setup routes
         self._setup_routes()
-        
+
         # Log registered routes for debugging
         self.logger.info("Registered Flask routes:")
         for rule in self.flask_app.url_map.iter_rules():
             self.logger.info(f"  {rule.rule} -> {rule.endpoint}")
-        
+
         self.logger.info(f"Web UI initialized on {host}:{port}")
-    
+
     def start(self) -> None:
         """Start the web UI server."""
         if not FLASK_AVAILABLE or not self.flask_app:
             self.logger.error("Cannot start web UI - Flask not available")
             return
-            
+
         if self.running:
             return
-        
+
         try:
             # Check if port is available
             import socket
+
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             result = sock.connect_ex((self.host, self.port))
             sock.close()
-            
+
             if result == 0:
                 self.logger.error(f"Port {self.port} is already in use!")
                 return
-            
+
             self.running = True
-            
+
             # Start heartbeat thread
             self.heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
             self.heartbeat_thread.start()
-            
+
             # Start web server in a separate thread with error handling
             def start_server():
                 try:
                     if WAITRESS_AVAILABLE:
                         self.logger.info("Starting waitress server...")
-                        serve(
-                            self.flask_app,
-                            host=self.host,
-                            port=self.port,
-                            threads=4
-                        )
+                        serve(self.flask_app, host=self.host, port=self.port, threads=4)
                     else:
                         self.logger.info("Starting Flask development server...")
                         self.flask_app.run(
-                            host=self.host, 
-                            port=self.port, 
-                            debug=False, 
-                            use_reloader=False,
-                            threaded=True
+                            host=self.host, port=self.port, debug=False, use_reloader=False, threaded=True
                         )
                 except Exception as e:
                     self.logger.error(f"Web server failed to start: {e}")
                     self.running = False
-            
+
             if WAITRESS_AVAILABLE:
                 self.logger.info(f"Using production web server (waitress) on {self.host}:{self.port}")
             else:
                 self.logger.warning("Using Flask development server (install waitress for production)")
-            
+
             server_thread = threading.Thread(target=start_server, daemon=True)
-            
+
             self.logger.info("Starting web server thread...")
             server_thread.start()
-            
+
             # Give Flask a moment to start
             self.logger.info("Waiting for web server to start...")
             time.sleep(2)
-            
+
             self.logger.info(f"Web UI should be available at http://{self.host}:{self.port}")
-            
+
             # Test if server is responding
             try:
                 import urllib.request
+
                 test_url = f"http://{self.host}:{self.port}/api/test"
                 response = urllib.request.urlopen(test_url, timeout=5)
                 self.logger.info(f"Web server test successful: {response.getcode()}")
             except Exception as test_error:
                 self.logger.error(f"Web server test failed: {test_error}")
                 self.logger.warning("Web server may not be responding properly")
-            
+
         except Exception as e:
             self.logger.error(f"Failed to start web UI: {e}")
             self.running = False
-    
+
     def stop(self) -> None:
         """Stop the web UI server."""
         self.running = False
         self.logger.info("Web UI stopped")
-    
+
     def _heartbeat_loop(self) -> None:
         """Update heartbeat every minute."""
         while self.running:
             try:
                 # Always update heartbeat if app is running
-                if hasattr(self.app_instance, 'is_running') and self.app_instance.is_running():
+                if hasattr(self.app_instance, "is_running") and self.app_instance.is_running():
                     self.last_heartbeat = datetime.now()
                     self.logger.debug("Heartbeat updated")
             except Exception as e:
                 self.logger.error(f"Error in heartbeat loop: {e}")
             time.sleep(60)  # Update every minute
-    
+
     def _setup_routes(self) -> None:
         """Setup Flask routes."""
-        
-        @self.flask_app.route('/')
+
+        @self.flask_app.route("/")
         def index():
             """Main dashboard."""
             try:
@@ -210,8 +204,9 @@ class WebUI(LoggerMixin):
             except Exception as e:
                 self.logger.error(f"Error rendering main template: {e}")
                 import traceback
+
                 self.logger.error(f"Traceback: {traceback.format_exc()}")
-                return f'''
+                return f"""
                 <html>
                 <head><title>Transcription App - Error</title></head>
                 <body>
@@ -221,12 +216,12 @@ class WebUI(LoggerMixin):
                     <p><a href="/api/test">Test API</a></p>
                 </body>
                 </html>
-                '''
-        
-        @self.flask_app.route('/debug')
+                """
+
+        @self.flask_app.route("/debug")
         def debug_page():
             """Simple debug page to test API connectivity."""
-            return '''
+            return """
             <!DOCTYPE html>
             <html>
             <head><title>Debug - Transcription App</title></head>
@@ -236,7 +231,7 @@ class WebUI(LoggerMixin):
                 <button onclick="testAPI()">Test /api/test</button>
                 <button onclick="testStatus()">Test /api/status</button>
                 <div id="results" style="margin-top: 20px; font-family: monospace;"></div>
-                
+
                 <script>
                 function testHealth() {
                     fetch('/api/health')
@@ -244,14 +239,14 @@ class WebUI(LoggerMixin):
                         .then(d => document.getElementById('results').innerHTML = '<h3>Health:</h3><pre>' + JSON.stringify(d, null, 2) + '</pre>')
                         .catch(e => document.getElementById('results').innerHTML = '<h3>Health Error:</h3>' + e);
                 }
-                
+
                 function testAPI() {
                     fetch('/api/test')
                         .then(r => r.json())
                         .then(d => document.getElementById('results').innerHTML = '<h3>Test:</h3><pre>' + JSON.stringify(d, null, 2) + '</pre>')
                         .catch(e => document.getElementById('results').innerHTML = '<h3>Test Error:</h3>' + e);
                 }
-                
+
                 function testStatus() {
                     fetch('/api/status')
                         .then(r => r.json())
@@ -261,176 +256,175 @@ class WebUI(LoggerMixin):
                 </script>
             </body>
             </html>
-            '''
-        
-        @self.flask_app.route('/api/test')
+            """
+
+        @self.flask_app.route("/api/test")
         def api_test():
             """Simple test endpoint."""
             self.logger.info("Test API endpoint called")
-            return jsonify({
-                'status': 'ok', 
-                'message': 'Web UI is working',
-                'timestamp': datetime.now().isoformat(),
-                'app_running': hasattr(self.app_instance, 'is_running') and self.app_instance.is_running(),
-                'web_ui_running': self.running,
-                'host': self.host,
-                'port': self.port
-            })
-        
-        @self.flask_app.route('/api/health')
+            return jsonify(
+                {
+                    "status": "ok",
+                    "message": "Web UI is working",
+                    "timestamp": datetime.now().isoformat(),
+                    "app_running": hasattr(self.app_instance, "is_running") and self.app_instance.is_running(),
+                    "web_ui_running": self.running,
+                    "host": self.host,
+                    "port": self.port,
+                }
+            )
+
+        @self.flask_app.route("/api/health")
         def api_health():
             """Simple health check that doesn't depend on app_instance."""
-            return jsonify({
-                'status': 'healthy',
-                'timestamp': datetime.now().isoformat(),
-                'message': 'Flask server is responding'
-            })
-        
-        @self.flask_app.route('/api/diagnose')
+            return jsonify(
+                {"status": "healthy", "timestamp": datetime.now().isoformat(), "message": "Flask server is responding"}
+            )
+
+        @self.flask_app.route("/api/diagnose")
         def api_diagnose():
             """Diagnostic endpoint."""
             try:
                 self.logger.info("Diagnose API endpoint called")
-                if hasattr(self.app_instance, 'diagnose_services'):
+                if hasattr(self.app_instance, "diagnose_services"):
                     diagnosis = self.app_instance.diagnose_services()
                     return safe_jsonify(diagnosis)
                 else:
-                    return safe_jsonify({'error': 'Diagnose method not available'})
+                    return safe_jsonify({"error": "Diagnose method not available"})
             except Exception as e:
                 self.logger.error(f"Error in diagnose API: {e}")
-                return safe_jsonify({'error': str(e)})
-        
-        @self.flask_app.route('/api/status')
+                return safe_jsonify({"error": str(e)})
+
+        @self.flask_app.route("/api/status")
         def api_status():
             """Get current status as JSON."""
             try:
                 self.logger.debug("Status API called")
                 status = self.app_instance.get_status()
                 self.logger.debug(f"Got status from app: {status}")
-                
+
                 # Add UI-specific status
-                status.update({
-                    'last_heartbeat': self.last_heartbeat.isoformat(),
-                    'heartbeat_ago': (datetime.now() - self.last_heartbeat).total_seconds(),
-                    'current_time': datetime.now().isoformat(),
-                    'uptime': self._get_uptime()
-                })
-                
+                status.update(
+                    {
+                        "last_heartbeat": self.last_heartbeat.isoformat(),
+                        "heartbeat_ago": (datetime.now() - self.last_heartbeat).total_seconds(),
+                        "current_time": datetime.now().isoformat(),
+                        "uptime": self._get_uptime(),
+                    }
+                )
+
                 self.logger.debug(f"Returning status: {status}")
                 return safe_jsonify(status)
             except Exception as e:
                 self.logger.error(f"Error in status API: {e}")
-                return safe_jsonify({
-                    'error': str(e),
-                    'running': False,
-                    'paused': False,
-                    'recording': False
-                })
-        
-        @self.flask_app.route('/api/control/<action>', methods=['POST'])
+                return safe_jsonify({"error": str(e), "running": False, "paused": False, "recording": False})
+
+        @self.flask_app.route("/api/control/<action>", methods=["POST"])
         def api_control(action):
             """Control the application."""
             try:
                 self.logger.info(f"Control API called with action: {action}")
-                if action == 'pause':
+                if action == "pause":
                     self.app_instance.pause()
-                    return jsonify({'success': True, 'message': 'Recording paused'})
-                
-                elif action == 'resume':
+                    return jsonify({"success": True, "message": "Recording paused"})
+
+                elif action == "resume":
                     self.app_instance.resume()
-                    return jsonify({'success': True, 'message': 'Recording resumed'})
-                
-                elif action == 'force_transcribe':
+                    return jsonify({"success": True, "message": "Recording resumed"})
+
+                elif action == "force_transcribe":
                     # Force process any pending audio
                     self._force_transcribe()
-                    return jsonify({'success': True, 'message': 'Transcription triggered'})
-                
-                elif action == 'force_summary':
+                    return jsonify({"success": True, "message": "Transcription triggered"})
+
+                elif action == "force_summary":
                     # Force generate daily summary
-                    target_date = request.json.get('date') if request.json else None
+                    target_date = request.json.get("date") if request.json else None
                     if target_date:
                         target_date = datetime.fromisoformat(target_date).date()
                     else:
                         target_date = date.today()
-                    
+
                     success = self.app_instance.force_daily_summary(target_date)
                     if success:
-                        return jsonify({'success': True, 'message': f'Summary generated for {target_date}'})
+                        return jsonify({"success": True, "message": f"Summary generated for {target_date}"})
                     else:
-                        return jsonify({'success': False, 'message': 'Summary generation failed'})
-                
-                elif action == 'upload_docs':
+                        return jsonify({"success": False, "message": "Summary generation failed"})
+
+                elif action == "upload_docs":
                     # Force upload to Google Docs
-                    target_date = request.json.get('date') if request.json else None
+                    target_date = request.json.get("date") if request.json else None
                     if target_date:
                         target_date = datetime.fromisoformat(target_date).date()
                     else:
                         target_date = date.today()
-                    
+
                     success = self._force_upload_docs_for_date(target_date)
                     if success:
-                        return jsonify({'success': True, 'message': f'Google Docs upload completed for {target_date}'})
+                        return jsonify({"success": True, "message": f"Google Docs upload completed for {target_date}"})
                     else:
-                        return jsonify({'success': False, 'message': f'Google Docs upload failed for {target_date}'})
-                
-                elif action == 'generate_daily_transcript':
+                        return jsonify({"success": False, "message": f"Google Docs upload failed for {target_date}"})
+
+                elif action == "generate_daily_transcript":
                     # Generate daily consolidated transcript
-                    target_date = request.json.get('date') if request.json else None
+                    target_date = request.json.get("date") if request.json else None
                     if target_date:
                         target_date = datetime.fromisoformat(target_date).date()
                     else:
                         target_date = date.today()
-                    
+
                     success = self.app_instance.generate_daily_transcript_file(target_date)
                     if success:
-                        return jsonify({'success': True, 'message': f'Daily transcript generated for {target_date}'})
+                        return jsonify({"success": True, "message": f"Daily transcript generated for {target_date}"})
                     else:
-                        return jsonify({'success': False, 'message': 'Daily transcript generation failed'})
-                
+                        return jsonify({"success": False, "message": "Daily transcript generation failed"})
+
                 else:
-                    return jsonify({'success': False, 'message': f'Unknown action: {action}'})
-                    
+                    return jsonify({"success": False, "message": f"Unknown action: {action}"})
+
             except Exception as e:
                 self.logger.error(f"Control action {action} failed: {e}")
-                return jsonify({'success': False, 'message': str(e)})
-        
-        @self.flask_app.route('/api/logs')
+                return jsonify({"success": False, "message": str(e)})
+
+        @self.flask_app.route("/api/logs")
         def api_logs():
             """Get recent log entries."""
             try:
                 logs = self._get_recent_logs()
-                return jsonify({'logs': logs})
+                return jsonify({"logs": logs})
             except Exception as e:
                 self.logger.error(f"Error reading logs: {e}")
-                return jsonify({'logs': [f'Error reading logs: {e}']})
-        
-        @self.flask_app.route('/api/upload', methods=['POST'])
+                return jsonify({"logs": [f"Error reading logs: {e}"]})
+
+        @self.flask_app.route("/api/upload", methods=["POST"])
         def api_upload():
             """Handle audio file uploads."""
             try:
-                if 'audio_file' not in request.files:
-                    return jsonify({'success': False, 'message': 'No audio file provided'})
-                
-                file = request.files['audio_file']
-                if file.filename == '':
-                    return jsonify({'success': False, 'message': 'No file selected'})
-                
+                if "audio_file" not in request.files:
+                    return jsonify({"success": False, "message": "No audio file provided"})
+
+                file = request.files["audio_file"]
+                if file.filename == "":
+                    return jsonify({"success": False, "message": "No file selected"})
+
                 # Process the uploaded file
                 result = self._process_uploaded_audio(file)
-                
-                if result['success']:
-                    return jsonify({
-                        'success': True, 
-                        'message': f"Audio file processed successfully: {result['transcript_preview']}",
-                        'transcript_length': result['transcript_length']
-                    })
+
+                if result["success"]:
+                    return jsonify(
+                        {
+                            "success": True,
+                            "message": f"Audio file processed successfully: {result['transcript_preview']}",
+                            "transcript_length": result["transcript_length"],
+                        }
+                    )
                 else:
-                    return jsonify({'success': False, 'message': result['error']})
-                    
+                    return jsonify({"success": False, "message": result["error"]})
+
             except Exception as e:
                 self.logger.error(f"Error processing uploaded file: {e}")
-                return jsonify({'success': False, 'message': str(e)})
-    
+                return jsonify({"success": False, "message": str(e)})
+
     def _force_transcribe(self) -> None:
         """Force transcription of any pending audio."""
         try:
@@ -438,106 +432,106 @@ class WebUI(LoggerMixin):
             segments = self.app_instance.audio_capture.get_completed_segments()
             for segment in segments:
                 self.app_instance.transcription_service.queue_audio_segment(segment)
-            
+
             self.logger.info(f"Queued {len(segments)} segments for transcription")
         except Exception as e:
             self.logger.error(f"Error forcing transcription: {e}")
-    
+
     def _force_upload_docs(self) -> None:
         """Force upload recent summaries to Google Docs."""
         try:
             self.logger.info("Google Docs upload triggered manually")
-            
+
             if not self.app_instance.config.google_docs.enabled:
                 self.logger.warning("Google Docs integration is disabled")
                 return
-            
+
             # Try to upload recent summaries
-            summary_dir = self.app_instance.config.get_storage_paths()['summaries']
+            summary_dir = self.app_instance.config.get_storage_paths()["summaries"]
             if not summary_dir.exists():
                 self.logger.warning("No summaries directory found")
                 return
-            
+
             # Find recent summary files
             summary_files = list(summary_dir.glob("summary_*.json"))
             if not summary_files:
                 self.logger.warning("No summary files found to upload")
                 return
-            
+
             # Upload the most recent summaries
             uploaded_count = 0
             for summary_file in sorted(summary_files)[-5:]:  # Last 5 summaries
                 try:
                     # Load summary
-                    with open(summary_file, 'r') as f:
+                    with open(summary_file, "r") as f:
                         summary_data = json.loads(f.read())
-                    
+
                     # Extract date from filename
-                    date_str = summary_file.stem.replace('summary_', '')
-                    target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                    
+                    date_str = summary_file.stem.replace("summary_", "")
+                    target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+
                     # Get transcript text
                     daily_text = self.app_instance._get_daily_transcript(target_date)
-                    
+
                     # Create DailySummary object
                     from .summarization import DailySummary
-                    
+
                     # Convert string dates back to proper objects
-                    summary_data['date'] = datetime.fromisoformat(summary_data['date']).date()
-                    summary_data['created_at'] = datetime.fromisoformat(summary_data['created_at'])
-                    
+                    summary_data["date"] = datetime.fromisoformat(summary_data["date"]).date()
+                    summary_data["created_at"] = datetime.fromisoformat(summary_data["created_at"])
+
                     # Add backward compatibility for missing first-person summary
-                    if 'summary_first_person' not in summary_data:
-                        summary_data['summary_first_person'] = ""
-                    
+                    if "summary_first_person" not in summary_data:
+                        summary_data["summary_first_person"] = ""
+
                     summary = DailySummary(**summary_data)
-                    
+
                     # Upload to Google Docs
                     self.app_instance._upload_to_google_docs(target_date, daily_text, summary)
                     uploaded_count += 1
-                    
+
                 except Exception as e:
                     self.logger.error(f"Error uploading {summary_file}: {e}")
-            
+
             self.logger.info(f"Uploaded {uploaded_count} summaries to Google Docs")
-            
+
         except Exception as e:
             self.logger.error(f"Error forcing Google Docs upload: {e}")
-    
+
     def _force_upload_docs_for_date(self, target_date: date) -> bool:
         """Force upload summary and transcript for a specific date to Google Docs."""
         try:
             self.logger.info(f"Google Docs upload triggered for {target_date}")
-            
+
             if not self.app_instance.config.google_docs.enabled:
                 self.logger.warning("Google Docs integration is disabled")
                 return False
-            
+
             # Check if summary exists for this date
-            summary_dir = self.app_instance.config.get_storage_paths()['summaries']
+            summary_dir = self.app_instance.config.get_storage_paths()["summaries"]
             summary_file = summary_dir / f"summary_{target_date.strftime('%Y-%m-%d')}.json"
-            
+
             summary = None
             if summary_file.exists():
                 try:
                     # Load existing summary
-                    with open(summary_file, 'r') as f:
+                    with open(summary_file, "r") as f:
                         summary_data = json.loads(f.read())
-                    
+
                     # Create DailySummary object
                     from .summarization import DailySummary
-                    
+
                     # Convert string dates back to proper objects
-                    summary_data['date'] = datetime.fromisoformat(summary_data['date']).date()
-                    summary_data['created_at'] = datetime.fromisoformat(summary_data['created_at'])
-                    
+                    summary_data["date"] = datetime.fromisoformat(summary_data["date"]).date()
+                    summary_data["created_at"] = datetime.fromisoformat(summary_data["created_at"])
+
                     # Add backward compatibility for missing first-person summary
-                    if 'summary_first_person' not in summary_data:
-                        summary_data['summary_first_person'] = ""
-                    
+                    if "summary_first_person" not in summary_data:
+                        summary_data["summary_first_person"] = ""
+
                     summary = DailySummary(**summary_data)
                     self.logger.info(f"Found existing summary for {target_date}")
-                    
+
                 except Exception as e:
                     self.logger.error(f"Error loading summary for {target_date}: {e}")
             else:
@@ -547,87 +541,88 @@ class WebUI(LoggerMixin):
                 if success:
                     # Try to load the newly generated summary
                     if summary_file.exists():
-                        with open(summary_file, 'r') as f:
+                        with open(summary_file, "r") as f:
                             summary_data = json.loads(f.read())
-                        
+
                         from .summarization import DailySummary
-                        summary_data['date'] = datetime.fromisoformat(summary_data['date']).date()
-                        summary_data['created_at'] = datetime.fromisoformat(summary_data['created_at'])
-                        
+
+                        summary_data["date"] = datetime.fromisoformat(summary_data["date"]).date()
+                        summary_data["created_at"] = datetime.fromisoformat(summary_data["created_at"])
+
                         # Add backward compatibility for missing first-person summary
-                        if 'summary_first_person' not in summary_data:
-                            summary_data['summary_first_person'] = ""
-                        
+                        if "summary_first_person" not in summary_data:
+                            summary_data["summary_first_person"] = ""
+
                         summary = DailySummary(**summary_data)
                     else:
                         self.logger.warning(f"Summary generation claimed success but file not found for {target_date}")
                 else:
                     self.logger.warning(f"Could not generate summary for {target_date}")
-            
+
             # Get transcript text
             daily_text = self.app_instance._get_daily_transcript(target_date)
-            
+
             if not daily_text.strip():
                 self.logger.warning(f"No transcript data found for {target_date}")
                 return False
-            
+
             # Upload to Google Docs
             self.app_instance._upload_to_google_docs(target_date, daily_text, summary)
             self.logger.info(f"Successfully uploaded to Google Docs for {target_date}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error uploading to Google Docs for {target_date}: {e}")
             return False
-    
+
     def _get_recent_logs(self) -> List[str]:
         """Get recent log entries from the log file."""
         try:
             # Find log file in the correct location
-            log_dir = self.app_instance.config.get_storage_paths()['base'] / 'logs'
-            log_file = log_dir / 'transcription_app.log'
-            
+            log_dir = self.app_instance.config.get_storage_paths()["base"] / "logs"
+            log_file = log_dir / "transcription_app.log"
+
             if not log_file.exists():
                 # Try fallback locations
                 fallback_locations = [
                     Path("transcription_app.log"),
                     Path("logs/transcription_app.log"),
-                    Path("transcripts/logs/transcription_app.log")
+                    Path("transcripts/logs/transcription_app.log"),
                 ]
-                
+
                 for fallback in fallback_locations:
                     if fallback.exists():
                         log_file = fallback
                         break
                 else:
                     return [f"No log file found. Expected at: {log_file}"]
-            
-            with open(log_file, 'r', encoding='utf-8') as f:
+
+            with open(log_file, "r", encoding="utf-8") as f:
                 lines = f.readlines()
                 # Get last 100 lines for better visibility
                 recent_lines = lines[-100:] if len(lines) > 100 else lines
-                
+
                 # Clean up lines and add some formatting
                 formatted_lines = []
                 for line in recent_lines:
                     line = line.strip()
                     if line:
                         formatted_lines.append(line)
-                
+
                 return formatted_lines
-                
+
         except Exception as e:
             self.logger.error(f"Error reading log file: {e}")
             return [f"Error reading log file: {e}"]
-    
+
     def _get_uptime(self) -> str:
         """Get application uptime."""
         # This is a simple implementation - you might want to track start time
         return "Running"
-    
+
     def _get_main_template(self) -> str:
         """Get the main HTML template."""
-        return '''
+        return """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -726,7 +721,7 @@ class WebUI(LoggerMixin):
         .btn-secondary { background: #6c757d; color: white; }
         .btn-success { background: #28a745; color: white; }
         .btn-warning { background: #ffc107; color: black; }
-        
+
         .upload-section {
             border: 2px dashed #ccc;
             border-radius: 8px;
@@ -734,12 +729,12 @@ class WebUI(LoggerMixin):
             text-align: center;
             margin: 10px 0;
         }
-        
+
         .upload-section:hover {
             border-color: #007bff;
             background-color: #f8f9fa;
         }
-        
+
         .upload-info {
             background-color: #f8f9fa;
             border-radius: 4px;
@@ -747,19 +742,19 @@ class WebUI(LoggerMixin):
             margin-top: 10px;
             text-align: left;
         }
-        
+
         .date-controls {
             display: flex;
             flex-direction: column;
             gap: 15px;
             align-items: flex-start;
         }
-        
+
         .date-controls label {
             font-weight: bold;
             color: #333;
         }
-        
+
         .date-input {
             padding: 8px 12px;
             border: 1px solid #ccc;
@@ -767,13 +762,13 @@ class WebUI(LoggerMixin):
             font-size: 14px;
             width: 200px;
         }
-        
+
         .date-buttons {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
         }
-        
+
         #audioFileInput {
             margin: 10px 0;
             padding: 8px;
@@ -813,9 +808,9 @@ class WebUI(LoggerMixin):
                 🔄 Connecting to server...
             </div>
         </div>
-        
+
         <div id="message" class="message"></div>
-        
+
         <div class="status-grid">
             <div class="status-card" id="recording-status">
                 <div class="status-title">
@@ -824,23 +819,23 @@ class WebUI(LoggerMixin):
                 </div>
                 <div class="status-value" id="recording-value">Loading...</div>
             </div>
-            
+
             <div class="status-card">
                 <div class="status-title">Last Activity</div>
                 <div class="status-value" id="last-activity">Loading...</div>
             </div>
-            
+
             <div class="status-card">
                 <div class="status-title">Transcription Queue</div>
                 <div class="status-value" id="queue-size">Loading...</div>
             </div>
-            
+
             <div class="status-card">
                 <div class="status-title">Total Transcribed</div>
                 <div class="status-value" id="total-transcribed">Loading...</div>
             </div>
         </div>
-        
+
         <div class="controls">
             <button class="btn btn-secondary" onclick="refreshStatus()">🔄 Refresh Status</button>
             <button class="btn btn-warning" onclick="pauseRecording()">⏸️ Pause Recording</button>
@@ -851,7 +846,7 @@ class WebUI(LoggerMixin):
             <button class="btn btn-primary" onclick="generateDailyTranscript()">📋 Generate Daily Transcript</button>
             <button class="btn btn-primary" onclick="uploadDocs()">☁️ Upload to Google Docs</button>
         </div>
-        
+
         <div class="card">
             <h3>📅 Historical Processing</h3>
             <p>Generate summaries and upload transcripts for previous dates</p>
@@ -865,7 +860,7 @@ class WebUI(LoggerMixin):
                 </div>
             </div>
         </div>
-        
+
         <div class="card">
             <h3>📁 Import Audio Files</h3>
             <p>Upload audio recordings from your phone or other devices</p>
@@ -883,14 +878,14 @@ class WebUI(LoggerMixin):
                 </small>
             </div>
         </div>
-        
+
         <div class="card">
             <h3>🔧 Debug Information</h3>
             <div id="debug-info" style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px;">
                 Loading debug info...
             </div>
         </div>
-        
+
         <div class="card">
             <h3>📋 Recent Logs</h3>
             <div class="logs" id="logs">Loading logs...</div>
@@ -900,7 +895,7 @@ class WebUI(LoggerMixin):
     <script>
         console.log('JavaScript loaded successfully!');
         let statusInterval;
-        
+
         function updateStatus() {
             console.log('Fetching status...');
             fetch('/api/status')
@@ -910,23 +905,23 @@ class WebUI(LoggerMixin):
                 })
                 .then(data => {
                     console.log('Status data:', data);
-                    
+
                     // Check if DOM elements exist
                     const recordingCard = document.getElementById('recording-status');
                     const recordingValue = document.getElementById('recording-value');
                     const heartbeat = document.getElementById('heartbeat');
-                    
+
                     console.log('DOM elements found:', {
                         recordingCard: !!recordingCard,
                         recordingValue: !!recordingValue,
                         heartbeat: !!heartbeat
                     });
-                    
+
                     if (!recordingCard || !recordingValue || !heartbeat) {
                         console.error('Required DOM elements not found!');
                         return;
                     }
-                    
+
                     if (data.recording && !data.paused) {
                         recordingCard.className = 'status-card recording';
                         recordingValue.textContent = 'Recording';
@@ -940,31 +935,31 @@ class WebUI(LoggerMixin):
                         recordingValue.textContent = 'Stopped';
                         heartbeat.className = 'heartbeat stale';
                     }
-                    
+
                     // Update other status
                     const heartbeatAgo = Math.floor(data.heartbeat_ago / 60);
-                    document.getElementById('last-activity').textContent = 
+                    document.getElementById('last-activity').textContent =
                         heartbeatAgo < 1 ? 'Just now' : heartbeatAgo + ' min ago';
-                    
-                    document.getElementById('queue-size').textContent = 
+
+                    document.getElementById('queue-size').textContent =
                         data.transcription_queue_size || 0;
-                    
-                    document.getElementById('total-transcribed').textContent = 
+
+                    document.getElementById('total-transcribed').textContent =
                         data.total_transcribed || 0;
-                    
+
                     // Update debug information
                     if (data.audio_config) {
                         const debugInfo = document.getElementById('debug-info');
                         let audioLevelsHtml = '';
-                        
+
                         if (data.audio_levels && data.audio_levels.samples > 0) {
                             const current = data.audio_levels.current.toFixed(4);
                             const average = data.audio_levels.average.toFixed(4);
                             const maximum = data.audio_levels.maximum.toFixed(4);
                             const threshold = data.audio_levels.threshold.toFixed(4);
                             const aboveThreshold = data.audio_levels.current > data.audio_levels.threshold;
-                            
-                            audioLevelsHtml = 
+
+                            audioLevelsHtml =
                                 '<strong>🎤 Live Audio Levels:</strong><br>' +
                                 'Current: ' + current + ' ' + (aboveThreshold ? '🟢' : '🔴') + '<br>' +
                                 'Average: ' + average + '<br>' +
@@ -973,7 +968,7 @@ class WebUI(LoggerMixin):
                                 'Samples: ' + data.audio_levels.samples + '<br>' +
                                 '<br>';
                         }
-                        
+
                         debugInfo.innerHTML = audioLevelsHtml +
                             '<strong>Audio Configuration:</strong><br>' +
                             'Silence Threshold: ' + data.audio_config.silence_threshold + '<br>' +
@@ -994,7 +989,7 @@ class WebUI(LoggerMixin):
                     showMessage('Error fetching status - check console', 'error');
                 });
         }
-        
+
         function updateLogs() {
             console.log('Fetching logs...');
             fetch('/api/logs')
@@ -1019,7 +1014,7 @@ class WebUI(LoggerMixin):
                     logsElement.textContent = 'Error fetching logs: ' + error + '\\nMake sure the application is running.\\nCheck browser console for details.';
                 });
         }
-        
+
         function showMessage(text, type) {
             const messageEl = document.getElementById('message');
             messageEl.textContent = text;
@@ -1029,7 +1024,7 @@ class WebUI(LoggerMixin):
                 messageEl.style.display = 'none';
             }, 3000);
         }
-        
+
         function controlAction(action, data = {}) {
             fetch('/api/control/' + action, {
                 method: 'POST',
@@ -1052,45 +1047,45 @@ class WebUI(LoggerMixin):
                 showMessage('Action failed', 'error');
             });
         }
-        
+
         function pauseRecording() {
             controlAction('pause');
         }
-        
+
         function resumeRecording() {
             controlAction('resume');
         }
-        
+
         function refreshStatus() {
             showMessage('Refreshing status...', 'info');
             updateStatus();
             updateLogs();
         }
-        
+
         function testAudio() {
             showMessage('Audio test: Speak now and watch the debug section for live audio levels!', 'info');
             // Force an immediate status update to show current levels
             updateStatus();
         }
-        
+
         function forceTranscribe() {
             controlAction('force_transcribe');
         }
-        
+
         function forceSummary() {
             const today = new Date().toISOString().split('T')[0];
             controlAction('force_summary', { date: today });
         }
-        
+
         function generateDailyTranscript() {
             const today = new Date().toISOString().split('T')[0];
             controlAction('generate_daily_transcript', { date: today });
         }
-        
+
         function uploadDocs() {
             controlAction('upload_docs');
         }
-        
+
         // Date-specific functions
         function generateSummaryForDate() {
             const dateInput = document.getElementById('targetDate');
@@ -1100,7 +1095,7 @@ class WebUI(LoggerMixin):
             }
             controlAction('force_summary', { date: dateInput.value });
         }
-        
+
         function uploadDocsForDate() {
             const dateInput = document.getElementById('targetDate');
             if (!dateInput.value) {
@@ -1109,7 +1104,7 @@ class WebUI(LoggerMixin):
             }
             controlAction('upload_docs', { date: dateInput.value });
         }
-        
+
         function generateTranscriptForDate() {
             const dateInput = document.getElementById('targetDate');
             if (!dateInput.value) {
@@ -1118,22 +1113,22 @@ class WebUI(LoggerMixin):
             }
             controlAction('generate_daily_transcript', { date: dateInput.value });
         }
-        
+
         function uploadAudioFiles() {
             const fileInput = document.getElementById('audioFileInput');
             const statusDiv = document.getElementById('uploadStatus');
-            
+
             if (fileInput.files.length === 0) {
                 statusDiv.innerHTML = '<span style="color: red;">Please select audio files to upload</span>';
                 return;
             }
-            
+
             statusDiv.innerHTML = '<span style="color: blue;">Uploading files...</span>';
-            
+
             // Upload files one by one
             uploadFileSequentially(fileInput.files, 0, statusDiv);
         }
-        
+
         function uploadFileSequentially(files, index, statusDiv) {
             if (index >= files.length) {
                 statusDiv.innerHTML = '<span style="color: green;">✅ All files uploaded successfully!</span>';
@@ -1141,13 +1136,13 @@ class WebUI(LoggerMixin):
                 document.getElementById('audioFileInput').value = '';
                 return;
             }
-            
+
             const file = files[index];
             const formData = new FormData();
             formData.append('audio_file', file);
-            
+
             statusDiv.innerHTML = '<span style="color: blue;">Uploading ' + file.name + ' (' + (index + 1) + '/' + files.length + ')...</span>';
-            
+
             fetch('/api/upload', {
                 method: 'POST',
                 body: formData
@@ -1170,7 +1165,7 @@ class WebUI(LoggerMixin):
                 setTimeout(() => uploadFileSequentially(files, index + 1, statusDiv), 2000);
             });
         }
-        
+
         // Set default date to yesterday
         function setDefaultDate() {
             const yesterday = new Date();
@@ -1178,21 +1173,21 @@ class WebUI(LoggerMixin):
             const dateString = yesterday.toISOString().split('T')[0];
             document.getElementById('targetDate').value = dateString;
         }
-        
+
         // Initialize when page loads
         function initializePage() {
             console.log('Initializing page...');
             console.log('DOM ready state:', document.readyState);
-            
+
             const connectionStatus = document.getElementById('connection-status');
             if (!connectionStatus) {
                 console.error('connection-status element not found!');
                 return;
             }
-            
+
             connectionStatus.innerHTML = '🔄 Testing connection...';
             connectionStatus.style.background = '#ffc107';
-            
+
             // Test basic connectivity first
             fetch('/api/health')
                 .then(response => {
@@ -1204,7 +1199,7 @@ class WebUI(LoggerMixin):
                     connectionStatus.innerHTML = '✅ Server responding';
                     connectionStatus.style.background = '#28a745';
                     connectionStatus.style.color = 'white';
-                    
+
                     // Now test the main API
                     return fetch('/api/test');
                 })
@@ -1216,7 +1211,7 @@ class WebUI(LoggerMixin):
                     console.log('Test API successful:', data);
                     connectionStatus.innerHTML = '✅ Connected to application';
                     showMessage('Connected to server', 'success');
-                    
+
                     // Start regular updates
                     updateStatus();
                     updateLogs();
@@ -1229,11 +1224,11 @@ class WebUI(LoggerMixin):
                     connectionStatus.innerHTML = '❌ Connection failed';
                     connectionStatus.style.background = '#dc3545';
                     connectionStatus.style.color = 'white';
-                    
+
                     showMessage('Cannot connect to server - check console for details', 'error');
-                    
+
                     // Show debug info
-                    document.getElementById('debug-info').innerHTML = 
+                    document.getElementById('debug-info').innerHTML =
                         '<strong>Connection Error:</strong><br>' +
                         error + '<br><br>' +
                         '<strong>Troubleshooting:</strong><br>' +
@@ -1243,7 +1238,7 @@ class WebUI(LoggerMixin):
                         '4. Try the refresh button above';
                 });
         }
-        
+
         // Wait for page to load
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initializePage);
@@ -1253,84 +1248,84 @@ class WebUI(LoggerMixin):
     </script>
 </body>
 </html>
-        '''
-    
+        """
+
     def _process_uploaded_audio(self, file) -> Dict[str, Any]:
         """Process an uploaded audio file."""
         try:
-            import tempfile
             import os
+            import tempfile
             from datetime import datetime
             from pathlib import Path
-            
+
             # Validate file type
-            allowed_extensions = {'.wav', '.mp3', '.m4a', '.mp4', '.flac', '.ogg', '.webm'}
+            allowed_extensions = {".wav", ".mp3", ".m4a", ".mp4", ".flac", ".ogg", ".webm"}
             file_ext = Path(file.filename).suffix.lower()
-            
+
             if file_ext not in allowed_extensions:
                 return {
-                    'success': False,
-                    'error': f'Unsupported file type: {file_ext}. Supported: {", ".join(allowed_extensions)}'
+                    "success": False,
+                    "error": f'Unsupported file type: {file_ext}. Supported: {", ".join(allowed_extensions)}',
                 }
-            
+
             # Extract date/time from filename or use current time
             timestamp = self._extract_timestamp_from_filename(file.filename)
-            
+
             # Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
                 file.save(temp_file.name)
                 temp_path = Path(temp_file.name)
-            
+
             try:
                 # Convert to WAV if needed and create AudioSegment
                 audio_segment = self._create_audio_segment_from_file(temp_path, timestamp)
-                
+
                 if not audio_segment:
-                    return {'success': False, 'error': 'Failed to process audio file'}
-                
+                    return {"success": False, "error": "Failed to process audio file"}
+
                 # Queue for transcription
                 self.app_instance.transcription_service.queue_audio_segment(audio_segment)
-                
+
                 # Get file info for response
                 file_size = temp_path.stat().st_size
                 duration_estimate = file_size / 32000  # Rough estimate
-                
+
                 return {
-                    'success': True,
-                    'transcript_preview': f'Queued for transcription ({duration_estimate:.1f}s estimated)',
-                    'transcript_length': 0,
-                    'timestamp': timestamp.isoformat(),
-                    'filename': file.filename
+                    "success": True,
+                    "transcript_preview": f"Queued for transcription ({duration_estimate:.1f}s estimated)",
+                    "transcript_length": 0,
+                    "timestamp": timestamp.isoformat(),
+                    "filename": file.filename,
                 }
-                
+
             finally:
                 # Clean up temporary file
                 if temp_path.exists():
                     temp_path.unlink()
-                    
+
         except Exception as e:
             self.logger.error(f"Error processing uploaded audio: {e}")
-            return {'success': False, 'error': str(e)}
-    
+            return {"success": False, "error": str(e)}
+
     def _extract_timestamp_from_filename(self, filename: str) -> datetime:
         """Extract timestamp from filename or return current time."""
         import re
         from datetime import datetime
-        
+
         # Try various filename patterns
         patterns = [
             # Voice memos: \"Recording 2024-09-30 14:30:15.m4a\"
-            r'(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2}):(\d{2})',
+            r"(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2}):(\d{2})",
             # Voice memos: \"Recording 2024-09-30 14:30.m4a\"
-            r'(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})',
+            r"(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})",
             # Date only: \"2024-09-30.wav\"
-            r'(\d{4}-\d{2}-\d{2})',
+            r"(\d{4}-\d{2}-\d{2})",
             # Timestamp: \"20240930_143015.wav\"
-            r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})',
+            r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})",
             # Timestamp: \"20240930_1430.wav\"
-            r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})',
+            r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})",
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, filename)
             if match:
@@ -1353,85 +1348,86 @@ class WebUI(LoggerMixin):
                         return datetime.strptime(f"{year}-{month}-{day} {hour}:{minute}:00", "%Y-%m-%d %H:%M:%S")
                 except ValueError:
                     continue
-        
+
         # If no pattern matches, use current time
         self.logger.info(f"Could not extract timestamp from filename '{filename}', using current time")
         return datetime.now()
-    
-    def _create_audio_segment_from_file(self, file_path: Path, timestamp: datetime) -> Optional['AudioSegment']:
+
+    def _create_audio_segment_from_file(self, file_path: Path, timestamp: datetime) -> Optional["AudioSegment"]:
         """Create an AudioSegment from an uploaded file."""
         try:
-            from .audio_capture import AudioSegment
             import subprocess
             import tempfile
-            
+
+            from .audio_capture import AudioSegment
+
             # Convert to WAV format if needed
-            if file_path.suffix.lower() != '.wav':
+            if file_path.suffix.lower() != ".wav":
                 # Use ffmpeg to convert to WAV
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as wav_file:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as wav_file:
                     wav_path = Path(wav_file.name)
-                
+
                 # Convert using ffmpeg
                 cmd = [
-                    'ffmpeg', '-i', str(file_path),
-                    '-ar', '16000',  # 16kHz sample rate
-                    '-ac', '1',      # Mono
-                    '-y',            # Overwrite output
-                    str(wav_path)
+                    "ffmpeg",
+                    "-i",
+                    str(file_path),
+                    "-ar",
+                    "16000",  # 16kHz sample rate
+                    "-ac",
+                    "1",  # Mono
+                    "-y",  # Overwrite output
+                    str(wav_path),
                 ]
-                
+
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
                     self.logger.error(f"FFmpeg conversion failed: {result.stderr}")
                     return None
-                
+
                 source_path = wav_path
             else:
                 source_path = file_path
-            
+
             # Get audio duration
             duration = self._get_audio_duration(source_path)
-            
+
             # Move to audio directory
-            audio_dir = self.app_instance.config.get_storage_paths()['audio']
+            audio_dir = self.app_instance.config.get_storage_paths()["audio"]
             audio_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Generate filename
             filename = f"uploaded_{timestamp.strftime('%Y%m%d_%H%M%S')}.wav"
             final_path = audio_dir / filename
-            
+
             # Move file to audio directory
             import shutil
+
             shutil.move(str(source_path), str(final_path))
-            
+
             # Create AudioSegment
             audio_segment = AudioSegment(
                 file_path=final_path,
                 start_time=timestamp,
                 end_time=timestamp,  # Will be updated after processing
                 duration=duration,
-                sample_rate=16000
+                sample_rate=16000,
             )
-            
+
             self.logger.info(f"Created audio segment from uploaded file: {filename} ({duration:.1f}s)")
             return audio_segment
-            
+
         except Exception as e:
             self.logger.error(f"Error creating audio segment from file: {e}")
             return None
-    
+
     def _get_audio_duration(self, file_path: Path) -> float:
         """Get audio file duration in seconds."""
         try:
             import subprocess
-            
-            cmd = [
-                'ffprobe', '-v', 'quiet',
-                '-show_entries', 'format=duration',
-                '-of', 'csv=p=0',
-                str(file_path)
-            ]
-            
+
+            cmd = ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", str(file_path)]
+
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode == 0:
                 return float(result.stdout.strip())
@@ -1439,7 +1435,7 @@ class WebUI(LoggerMixin):
                 # Fallback: estimate from file size
                 file_size = file_path.stat().st_size
                 return file_size / 32000  # Rough estimate for 16kHz mono
-                
+
         except Exception as e:
             self.logger.error(f"Error getting audio duration: {e}")
             # Fallback: estimate from file size

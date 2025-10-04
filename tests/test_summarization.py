@@ -1,11 +1,12 @@
 """Tests for summarization module."""
 
-import pytest
 from datetime import date
 from unittest.mock import Mock, patch
 
-from src.summarization import SummarizationService, DailySummary
+import pytest
+
 from src.config import SummaryConfig
+from src.summarization import DailySummary, SummarizationService
 
 
 class TestSummarizationService:

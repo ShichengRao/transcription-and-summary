@@ -1,14 +1,15 @@
 """Tests for audio capture module."""
 
-import pytest
-import numpy as np
-from pathlib import Path
-from datetime import datetime
-from unittest.mock import Mock, patch
-
 # Mock sounddevice before importing audio_capture
 import sys
-sys.modules['sounddevice'] = Mock()
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import numpy as np
+import pytest
+
+sys.modules["sounddevice"] = Mock()
 
 from src.audio_capture import AudioCapture, AudioSegment
 from src.config import AudioConfig
@@ -58,9 +59,7 @@ class TestAudioCapture:
 
     def test_silence_detection_parameters(self, temp_dir):
         """Test silence detection configuration."""
-        config = AudioConfig(
-            silence_threshold=0.03, silence_duration=7.0, min_audio_duration=4.0
-        )
+        config = AudioConfig(silence_threshold=0.03, silence_duration=7.0, min_audio_duration=4.0)
         capture = AudioCapture(config, temp_dir)
 
         assert capture.config.silence_threshold == 0.03
