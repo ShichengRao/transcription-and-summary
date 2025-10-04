@@ -214,10 +214,19 @@ transcription-and-summary/
 │   ├── test_config.py
 │   ├── test_audio_capture.py
 │   └── ...
+├── scripts/                # Utility scripts
+│   ├── diagnose_audio.py
+│   ├── install.sh
+│   └── ...
+├── docs/                   # Planning documents
+│   ├── DESKTOP_APP_PLAN.md
+│   └── DISTRIBUTION_PLAN.md
+├── examples/               # Example configurations
+│   └── config.yaml
 ├── .github/                # GitHub templates
 │   ├── ISSUE_TEMPLATE/
 │   └── PULL_REQUEST_TEMPLATE.md
-├── config.yaml             # Configuration
+├── config.yaml             # Configuration (create from examples/)
 ├── requirements.txt        # Dependencies
 ├── Makefile               # Development commands
 └── pyproject.toml         # Tool configuration

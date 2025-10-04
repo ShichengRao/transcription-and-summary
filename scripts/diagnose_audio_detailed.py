@@ -116,8 +116,8 @@ def test_config_thresholds():
 
         # Try to load config
         try:
-            config = AppConfig.load("config_test.yaml")
-            print("✅ Loaded config_test.yaml")
+            config = AppConfig.load("examples/config.yaml")
+            print("✅ Loaded examples/config.yaml")
         except:
             try:
                 config = AppConfig.load()
