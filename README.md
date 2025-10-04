@@ -168,18 +168,28 @@ To automatically upload summaries to Google Docs:
    - Browser will open for OAuth consent
    - Grant permissions to access Google Docs and Drive
 
-## File Structure
+## Project Structure
 
 ```
-transcripts/
-├── audio/           # Temporary audio files (auto-deleted)
-├── transcripts/     # Daily transcript files
-│   └── 2024-01-15/
-│       ├── transcript_090000.txt
-│       └── transcript_143000.txt
-├── summaries/       # Generated summaries
-│   └── summary_2024-01-15.json
-└── config.yaml      # Application configuration
+transcription-and-summary/
+├── src/                 # Source code
+│   ├── audio_capture.py
+│   ├── transcription.py
+│   ├── summarization.py
+│   └── ...
+├── tests/               # Test suite
+├── scripts/             # Utility scripts
+│   ├── diagnose_audio.py
+│   ├── install.sh
+│   └── ...
+├── docs/                # Planning documents
+├── examples/            # Example configurations
+│   └── config.yaml
+├── transcripts/         # Generated data (created at runtime)
+│   ├── audio/           # Temporary audio files
+│   ├── transcripts/     # Daily transcripts
+│   └── summaries/       # AI summaries
+└── config.yaml          # Your configuration (create from examples/)
 ```
 
 ## Privacy & Security
@@ -224,6 +234,7 @@ pip install --no-cache-dir package_name
 ### Runtime Issues
 
 **No Audio Detected:**
+- Run diagnostics: `python scripts/diagnose_audio.py`
 - Check microphone permissions in System Preferences
 - Verify microphone is working in other applications
 - Try adjusting `silence_threshold` in config.yaml
@@ -237,6 +248,11 @@ pip install --no-cache-dir package_name
 - Verify API key is correct in `.env` file
 - Check API usage limits at [console.anthropic.com](https://console.anthropic.com/)
 - Ensure sufficient credits in your Anthropic account
+
+**For detailed diagnostics:**
+```bash
+python scripts/diagnose_audio_detailed.py
+```
 
 ## License
 
